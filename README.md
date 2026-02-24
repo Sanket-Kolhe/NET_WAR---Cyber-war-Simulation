@@ -1,5 +1,5 @@
-# 🛡️ Project A.R.M.O.R.
-**Autonomous Risk Mitigation & Offensive Response System**
+# 🛡️ Project NET-WAR
+**Autonomous Cyber-Warfare Simulation Engine**
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-00a393.svg)
