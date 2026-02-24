@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Node/React (Frontend)
+node_modules/
+build/
+.env
+
+# Database
+*.sqlite3
+*.db
