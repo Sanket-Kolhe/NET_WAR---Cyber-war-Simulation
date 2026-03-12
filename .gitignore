@@ -1,7 +1,15 @@
-node_modules/
+# Python
 __pycache__/
+*.py[cod]
+.venv/
 venv/
-.env
-dist/
+env/
+
+# Node/React (Frontend)
+node_modules/
 build/
-.DS_Store
+.env
+
+# Database
+*.sqlite3
+*.db
