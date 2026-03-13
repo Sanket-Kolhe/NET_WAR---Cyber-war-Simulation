@@ -290,28 +290,62 @@ body {
   height: 6px;
   border-radius: 50%;
 }
-.status-dot-small.safe { background-color: var(--color-safe); }
-.status-dot-small.infected { background-color: var(--color-infected); }
-.status-dot-small.scanning { background-color: var(--color-scanning); }
+/* Status dot colors — matches backend status strings */
+.status-dot-small.secure      { background-color: var(--color-safe); }
+.status-dot-small.exposed     { background-color: var(--color-scanning); }
+.status-dot-small.compromised { background-color: #f97316; } /* orange */
+.status-dot-small.root_access { background-color: var(--color-infected); }
+/* Legacy dot classes */
+.status-dot-small.safe        { background-color: var(--color-safe); }
+.status-dot-small.infected    { background-color: var(--color-infected); }
+.status-dot-small.scanning    { background-color: var(--color-scanning); }
 
-.status-Safe .status-indicator { color: var(--color-safe); }
+/* ── Status: SECURE ──────────────────────────────────────────── */
+.status-SECURE .status-indicator { color: var(--color-safe); }
+.status-SECURE { border-color: var(--color-safe); }
+
+/* ── Status: EXPOSED (being scanned / probed) ────────────────── */
+.status-EXPOSED .status-indicator { color: var(--color-scanning); }
+.status-EXPOSED {
+  border-color: var(--color-scanning);
+  background: rgba(245, 158, 11, 0.05);
+}
+.status-EXPOSED .node-icon { color: var(--color-scanning); }
+
+/* ── Status: COMPROMISED ─────────────────────────────────────── */
+.status-COMPROMISED .status-indicator { color: #f97316; }
+.status-COMPROMISED {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.07);
+  animation: shake 0.4s ease-in-out;
+}
+.status-COMPROMISED .node-icon { color: #f97316; }
+
+/* ── Status: ROOT_ACCESS (fully owned) ───────────────────────── */
+.status-ROOT_ACCESS .status-indicator { color: var(--color-infected); }
+.status-ROOT_ACCESS {
+  border-color: var(--color-infected);
+  background: rgba(239, 68, 68, 0.1);
+  animation: shake 0.4s ease-in-out, pulse-red 1.5s ease-in-out infinite;
+}
+.status-ROOT_ACCESS .node-icon { color: var(--color-infected); }
+
+/* ── Status: Database target node ────────────────────────────── */
+.status-Target .status-indicator { color: var(--color-target); }
+.status-Target { border-color: var(--color-target); border-width: 3px; }
+.status-Target .status-dot-small { background-color: var(--color-target); }
+
+/* ── Legacy status classes (kept for backwards compat) ───────── */
+.status-Safe .status-indicator   { color: var(--color-safe); }
 .status-Infected .status-indicator { color: var(--color-infected); }
 .status-Scanning .status-indicator { color: var(--color-scanning); }
-.status-Target .status-indicator { color: var(--color-target); }
-.status-Target .status-dot-small.safe { background-color: var(--color-target); } /* Override dot color for DB */
-
-/* Node Border Colors */
-.status-Safe { border-color: var(--color-safe); }
-.status-Infected { 
-  border-color: var(--color-infected); 
-  animation: shake 0.4s ease-in-out;
-  background: rgba(239, 68, 68, 0.05); /* Slight red tint */
-}
-.status-Infected .node-icon { color: var(--color-infected); }
+.status-Safe    { border-color: var(--color-safe); }
+.status-Infected { border-color: var(--color-infected); animation: shake 0.4s ease-in-out; background: rgba(239,68,68,0.05); }
 .status-Scanning { border-color: var(--color-scanning); }
-.status-Target { 
-  border-color: var(--color-target); 
-  border-width: 3px; /* Emphasize target */
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 12px 4px rgba(239, 68, 68, 0.4); }
 }
 
 /* Stats */

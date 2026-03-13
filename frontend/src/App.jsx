@@ -33,8 +33,8 @@ const ArmorNode = ({ data, id }) => {
   const Icon = roleInfo.icon;
 
   let statusClass = `status-${data.status}`;
-  if (isTarget) statusClass = 'status-Target';
-  if (data.status === 'Infected') statusClass = 'status-Infected'; // Override if infected!
+  if (isTarget && data.status === 'SECURE') statusClass = 'status-Target';
+  if (data.status === 'ROOT_ACCESS') statusClass = 'status-ROOT_ACCESS';
 
   return (
     <div className={`armor-node ${statusClass}`}>
@@ -76,24 +76,25 @@ const nodeTypes = {
 const getInitialLayout = (nodesData) => {
   return nodesData.map((node) => {
     let x, y;
-    
-    // Deeper network architecture up to 10
-    switch(node.id) {
-      case 1: x = 50;  y = 350; break; // Entry Zone
-      case 2: x = 350; y = 150; break; // DMZ Zone (Top)
-      case 3: x = 350; y = 550; break; // DMZ Zone (Bottom)
-      case 4: x = 650; y = 150; break; // App Layer (Top)
-      case 5: x = 650; y = 350; break; // App Layer (Middle)
-      case 6: x = 650; y = 550; break; // App Layer (Bottom)
-      case 7: x = 950; y = 150; break; // Internal Services (Top)
-      case 8: x = 950; y = 350; break; // Internal Services (Middle)
-      case 9: x = 950; y = 550; break; // Internal Services (Bottom)
+    // node.id is "Node_1", "Node_2" etc — extract the number
+    const num = parseInt(node.id.replace('Node_', ''), 10);
+
+    switch(num) {
+      case 1:  x = 50;   y = 350; break; // Entry Zone
+      case 2:  x = 350;  y = 150; break; // DMZ Zone (Top)
+      case 3:  x = 350;  y = 550; break; // DMZ Zone (Bottom)
+      case 4:  x = 650;  y = 150; break; // App Layer (Top)
+      case 5:  x = 650;  y = 350; break; // App Layer (Middle)
+      case 6:  x = 650;  y = 550; break; // App Layer (Bottom)
+      case 7:  x = 950;  y = 150; break; // Internal Services (Top)
+      case 8:  x = 950;  y = 350; break; // Internal Services (Middle)
+      case 9:  x = 950;  y = 550; break; // Internal Services (Bottom)
       case 10: x = 1250; y = 350; break; // Core Vault target
-      default: x = 0; y = 0;
+      default: x = 0;    y = 0;
     }
 
     return {
-      id: node.id.toString(),
+      id: node.id,
       type: 'armor',
       position: { x, y },
       data: node
@@ -101,33 +102,30 @@ const getInitialLayout = (nodesData) => {
   });
 };
 
+
 const getInitialEdges = (nodesData) => {
   const edges = [];
-  
-  // Define strict paths: The attack maze
+
+  // Matches the new branching topology in backend/engine/network.py
   const connections = [
-    // Entry to DMZ
-    { source: '1', target: '2' },
-    { source: '1', target: '3' },
-    { source: '1', target: '5' },
-    
-    // DMZ to App
-    { source: '2', target: '4' },
-    { source: '2', target: '5' },
-    { source: '3', target: '5' },
-    { source: '3', target: '6' },
-    
-    // App to Internal
-    { source: '4', target: '7' },
-    { source: '4', target: '8' },
-    { source: '5', target: '8' },
-    { source: '6', target: '8' },
-    { source: '6', target: '9' },
-    
-    // Internal to Core Vault
-    { source: '7', target: '10' },
-    { source: '8', target: '10' },
-    { source: '9', target: '10' }
+    // Entry → DMZ
+    { source: 'Node_1', target: 'Node_2' },
+    { source: 'Node_1', target: 'Node_3' },
+    // DMZ → App (cross-links)
+    { source: 'Node_2', target: 'Node_4' },
+    { source: 'Node_2', target: 'Node_5' },
+    { source: 'Node_3', target: 'Node_5' },
+    { source: 'Node_3', target: 'Node_6' },
+    // App → Internal (multiple paths)
+    { source: 'Node_4', target: 'Node_7' },
+    { source: 'Node_4', target: 'Node_8' },
+    { source: 'Node_5', target: 'Node_8' },
+    { source: 'Node_6', target: 'Node_8' },
+    { source: 'Node_6', target: 'Node_9' },
+    // Internal → Vault (3 paths)
+    { source: 'Node_7', target: 'Node_10' },
+    { source: 'Node_8', target: 'Node_10' },
+    { source: 'Node_9', target: 'Node_10' },
   ];
 
   connections.forEach((conn) => {
@@ -137,10 +135,7 @@ const getInitialEdges = (nodesData) => {
       target: conn.target,
       type: 'smoothstep',
       animated: false,
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: '#475569',
-      },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' },
       style: { stroke: '#475569', strokeWidth: 2 }
     });
   });
@@ -148,76 +143,79 @@ const getInitialEdges = (nodesData) => {
   return edges;
 };
 
+
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [logs, setLogs] = useState([]);
   const ws = useRef(null);
 
-  const fetchLogs = useCallback(async () => {
-    try {
-      const response = await fetch('http://localhost:8000/api/logs');
-      if (response.ok) {
-        const data = await response.json();
-        setLogs(prevLogs => {
-          const localLogs = prevLogs.filter(l => l.source === 'System' && typeof l.id === 'string');
-          return [...localLogs, ...data];
-        });
-      }
-    } catch (e) {
-        console.error("Fetch logs failed:", e);
-    }
-  }, []);
+  // Convert backend nodes dict to a flat array with ip_address injected
+  const enrichNodes = (nodesDict) =>
+    Object.entries(nodesDict).map(([id, data]) => ({
+      ...data,
+      id,
+      ip_address: `192.168.1.${id.replace('Node_', '')}`,
+    }));
 
   useEffect(() => {
-    fetchLogs(); 
-    
-    ws.current = new WebSocket('ws://localhost:8000/ws');
-    
+    // ── Connect to the CORRECT WebSocket path ─────────────────────────────
+    ws.current = new WebSocket('ws://localhost:8000/ws/combat');
+
     ws.current.onopen = () => {
-      addLocalLog('System', 'Connected to the Simulation Network', 'info');
+      addLocalLog('System', 'Connected to ARMOR Simulation Network', 'info');
     };
 
     ws.current.onmessage = (event) => {
+      // Backend broadcasts: { nodes: { Node_1: {...}, ... }, edges: [...] }
       const message = JSON.parse(event.data);
-      if (message.type === 'init') {
-        const layoutNodes = getInitialLayout(message.data);
-        setNodes(layoutNodes);
-        setEdges(getInitialEdges(message.data));
-      } else if (message.type === 'update') {
-        
-        fetchLogs();
 
-        setNodes((nds) => {
-            return nds.map((node) => {
-                const updateData = message.data.find(d => d.id.toString() === node.id);
-                if (updateData) {
-                    return { ...node, data: updateData };
-                }
-                return node;
-            });
+      // Skip BFS scan replies (they have bfs_order not nodes)
+      if (!message.nodes) return;
+
+      const nodesArray = enrichNodes(message.nodes);
+
+      setNodes((nds) => {
+        if (nds.length === 0) {
+          // First message — do full layout init
+          const layout = getInitialLayout(nodesArray);
+          setEdges(getInitialEdges(nodesArray));
+          return layout;
+        }
+        // Subsequent messages — just update data in-place
+        return nds.map((node) => {
+          const updated = nodesArray.find((n) => n.id === node.id);
+          if (updated) return { ...node, data: updated };
+          return node;
         });
-        
-        // Edge animations: Turn edge red and animate if source is infected
-        setEdges((eds) => eds.map(e => {
-            const sourceNode = message.data.find(n => n.id.toString() === e.source);
-            if (sourceNode && (sourceNode.status === 'Infected' || sourceNode.status === 'Scanning')) {
-                return { 
-                  ...e, 
-                  animated: true, 
-                  style: { stroke: '#ef4444', strokeWidth: 3 },
-                  markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' }
-                };
-            }
-            return { 
-              ...e, 
-              animated: false, 
-              style: { stroke: '#475569', strokeWidth: 2 },
-              markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' }
-            };
-        }));
+      });
 
-      }
+      // Animate edges red when source is under attack
+      setEdges((eds) =>
+        eds.map((e) => {
+          const src = message.nodes[e.source];   // e.source is already "Node_1" etc.
+          const isUnderAttack =
+            src && ['EXPOSED', 'COMPROMISED', 'ROOT_ACCESS'].includes(src.status);
+          return isUnderAttack
+            ? { ...e, animated: true,  style: { stroke: '#ef4444', strokeWidth: 3 },
+                markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' } }
+            : { ...e, animated: false, style: { stroke: '#475569', strokeWidth: 2 },
+                markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' } };
+        })
+      );
+
+      // Add a log entry whenever a node changes to a bad state
+      nodesArray.forEach((n) => {
+        if (n.status === 'ROOT_ACCESS') {
+          addLocalLog('Red Team', `ROOT_ACCESS gained on ${n.id} (${n.ip_address})`, 'critical');
+        } else if (n.status === 'COMPROMISED') {
+          addLocalLog('Red Team', `${n.id} compromised`, 'warning');
+        } else if (n.status === 'EXPOSED') {
+          addLocalLog('Red Team', `${n.id} exposed — scan detected`, 'warning');
+        } else if (n.status === 'SECURE' && n.scan_rate === 0) {
+          addLocalLog('Blue Team', `${n.id} restored to SECURE`, 'info');
+        }
+      });
     };
 
     ws.current.onclose = () => {
@@ -227,7 +225,7 @@ export default function App() {
     return () => {
       if (ws.current) ws.current.close();
     };
-  }, [fetchLogs]);
+  }, []);
 
   const addLocalLog = (source, message, level) => {
     const newLog = {
