@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A.R.M.O.R — A* Game Tree Visualizer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0a0e1a; --card:#111827; --surface:#1e293b; --border:#1e3a5f;
+      --text:#e2e8f0; --muted:#64748b; --dim:#94a3b8;
+      --red:#ef4444; --blue:#3b82f6; --gold:#fbbf24; --green:#22c55e;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;height:100vh;overflow:hidden}
+
+    .hdr{height:50px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#0a0e1a,#111827)}
+    .hdr h1{font-size:16px;font-weight:800;letter-spacing:2px}
+    .hdr .acc{color:var(--red)}
+    .hdr .sub{font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace}
+    .legend{display:flex;gap:14px;font-size:10px;color:var(--dim)}
+    .legend-i{display:flex;align-items:center;gap:4px}
+    .legend-d{width:8px;height:8px;border-radius:50%}
+    .back-btn{padding:5px 12px;border-radius:5px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.4);color:var(--blue);font-size:10px;font-weight:700;text-decoration:none;font-family:'Inter',sans-serif}
+
+    .wrap{display:flex;height:calc(100vh - 50px)}
+    .canvas{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto}
+    .tree-box{position:relative;width:1100px;height:560px;transform:scale(0.92);transform-origin:center center}
+
+    .nd{position:absolute;background:var(--card);border:2px solid var(--border);border-radius:8px;padding:5px 8px;min-width:110px;z-index:2;transition:all 0.3s ease;font-size:10px}
+    .nd:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,0.4)}
+    .nd.opt{border-color:var(--red);box-shadow:0 0 12px rgba(239,68,68,0.25);animation:pr 3s ease-in-out infinite}
+    .nd.pru{border-color:var(--muted);opacity:0.45;border-style:dashed}
+    .nd.tgt{border-color:var(--gold);box-shadow:0 0 20px rgba(251,191,36,0.3);background:linear-gradient(135deg,#1e293b,#292524);animation:pg 3s ease-in-out infinite}
+    .nd.sta{border-color:var(--blue);box-shadow:0 0 12px rgba(59,130,246,0.25)}
+    @keyframes pr{0%,100%{box-shadow:0 0 12px rgba(239,68,68,0.2)}50%{box-shadow:0 0 24px rgba(239,68,68,0.4)}}
+    @keyframes pg{0%,100%{box-shadow:0 0 16px rgba(251,191,36,0.2)}50%{box-shadow:0 0 32px rgba(251,191,36,0.4)}}
+
+    .nh{display:flex;align-items:center;gap:4px;margin-bottom:2px}
+    .ni{font-size:13px}
+    .nn{font-weight:700;font-size:10px}
+    .nr{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace}
+    .nb{display:inline-block;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;font-family:'JetBrains Mono',monospace;margin-top:1px}
+    .nb-o{background:#7f1d1d;color:var(--red)} .nb-p{background:#1e293b;color:var(--muted)}
+    .nb-t{background:#422006;color:var(--gold)} .nb-s{background:#172554;color:var(--blue)}
+
+    .sg{display:grid;grid-template-columns:1fr 1fr;gap:1px 6px;margin-top:4px;font-size:8px;font-family:'JetBrains Mono',monospace}
+    .sl{color:var(--muted)} .sv{color:var(--text);text-align:right;font-weight:600}
+    .st{grid-column:1/-1;border-top:1px solid var(--border);padding-top:3px;margin-top:2px;display:flex;justify-content:space-between;font-size:10px;font-weight:700}
+    .fn{color:var(--gold)}
+
+    .lines{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+    .lines line{stroke-width:1.5}
+    .lo{stroke:var(--red);stroke-width:2.5;stroke-dasharray:8 4;animation:ds 1s linear infinite}
+    .lp{stroke:var(--muted);stroke-dasharray:5 3;opacity:0.35}
+    @keyframes ds{to{stroke-dashoffset:-16}}
+
+    .side{width:290px;background:var(--card);border-left:1px solid var(--border);padding:16px 14px;overflow-y:auto;flex-shrink:0}
+    .side h2{font-size:14px;font-weight:700;margin-bottom:3px}
+    .side .ss{font-size:10px;color:var(--muted);margin-bottom:14px}
+    .bx{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px}
+    .bt{font-size:9px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+    .fm{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:var(--gold);text-align:center;padding:4px 0}
+    .bd{font-size:10px;color:var(--muted);line-height:1.5;margin-top:6px}
+    .bd code{background:var(--bg);padding:1px 3px;border-radius:3px;font-family:'JetBrains Mono',monospace;color:var(--text);font-size:9px}
+    .bd strong{color:var(--gold)}
+
+    .tb{width:100%;border-collapse:collapse;font-size:9px}
+    .tb th{text-align:left;font-weight:600;color:var(--muted);padding:4px 3px;border-bottom:1px solid var(--border);font-size:8px;text-transform:uppercase;letter-spacing:0.5px}
+    .tb td{padding:4px 3px;border-bottom:1px solid rgba(30,58,95,0.3);font-family:'JetBrains Mono',monospace;color:var(--dim)}
+    .tb tr.sel{background:rgba(239,68,68,0.08)} .tb tr.sel td{color:var(--red)!important;font-weight:600}
+    .tb tr.dim td{color:#475569}
+
+    .steps{margin-top:6px}
+    .stp{display:flex;gap:6px;margin-bottom:8px}
+    .sn{width:18px;height:18px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--dim);flex-shrink:0}
+    .stxt{font-size:10px;color:var(--dim);line-height:1.4}
+    .stxt strong{color:var(--text)}
+    .side::-webkit-scrollbar{width:4px} .side::-webkit-scrollbar-track{background:transparent} .side::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+  </style>
+</head>
+<body>
+  <header class="hdr">
+    <div>
+      <h1>🛡️ A.R.M.O.R — <span class="acc">A* Game Tree</span></h1>
+      <div class="sub">20-Node Red Team Decision Visualizer</div>
+    </div>
+    <div class="legend">
+      <a href="/" class="back-btn">← Network Map</a>
+      <div class="legend-i"><div class="legend-d" style="background:#3b82f6"></div> Start</div>
+      <div class="legend-i"><div class="legend-d" style="background:#ef4444"></div> Optimal</div>
+      <div class="legend-i"><div class="legend-d" style="background:#64748b;border:1px dashed #94a3b8"></div> Pruned</div>
+      <div class="legend-i"><div class="legend-d" style="background:#fbbf24"></div> Target</div>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="canvas">
+      <div class="tree-box" id="tb">
+        <svg class="lines" id="svg"></svg>
+      </div>
+    </div>
+    <div class="side">
+      <h2>🔴 A* Search Algorithm</h2>
+      <p class="ss">How the Red Team finds the optimal attack path</p>
+      <div class="bx">
+        <div class="bt">Core Formula</div>
+        <div class="fm">f(n) = g(n) + h(n)</div>
+        <div class="bd">
+          <code>g(n)</code> = cost so far (steps + detection risk)<br>
+          <code>h(n)</code> = heuristic = <code>distance / vulnerability</code><br><br>
+          AI picks the node with the <strong>lowest f(n)</strong>.
+        </div>
+      </div>
+      <div class="bx">
+        <div class="bt">Vulnerability by OS</div>
+        <table class="tb">
+          <tr><th>OS</th><th>Vuln</th><th>Why</th></tr>
+          <tr><td>🐧 Linux</td><td style="color:#22c55e">1.20</td><td>More open ports</td></tr>
+          <tr><td>💻 Windows</td><td style="color:#eab308">1.00</td><td>Standard config</td></tr>
+        </table>
+      </div>
+      <div class="bx">
+        <div class="bt">Path Comparison</div>
+        <table class="tb" id="ptb">
+          <tr><th></th><th>Node</th><th>g(n)</th><th>h(n)</th><th>f(n)</th></tr>
+        </table>
+      </div>
+      <div class="bx">
+        <div class="bt">How It Works</div>
+        <div class="steps">
+          <div class="stp"><div class="sn">1</div><div class="stxt"><strong>Expand:</strong> Compute f(n) for each neighbor.</div></div>
+          <div class="stp"><div class="sn">2</div><div class="stxt"><strong>Select:</strong> Pick the <strong>lowest f(n)</strong>.</div></div>
+          <div class="stp"><div class="sn">3</div><div class="stxt"><strong>Prune:</strong> Abandon higher f(n) branches.</div></div>
+          <div class="stp"><div class="sn">4</div><div class="stxt"><strong>Repeat:</strong> Until Database reached.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const NET={
+      Node_1:  {os:"Windows",role:"Gateway",     d:0,nb:["Node_2","Node_3","Node_4"]},
+      Node_2:  {os:"Linux",  role:"DMZ α",        d:1,nb:["Node_5","Node_6"]},
+      Node_3:  {os:"Windows",role:"DMZ β",        d:1,nb:["Node_6","Node_7"]},
+      Node_4:  {os:"Linux",  role:"DMZ γ",        d:1,nb:["Node_8","Node_9"]},
+      Node_5:  {os:"Windows",role:"Web App",      d:2,nb:["Node_10"]},
+      Node_6:  {os:"Linux",  role:"API Gateway",  d:2,nb:["Node_10","Node_11"]},
+      Node_7:  {os:"Windows",role:"Auth Server",  d:2,nb:["Node_11","Node_12"]},
+      Node_8:  {os:"Linux",  role:"App Server",   d:2,nb:["Node_13","Node_12"]},
+      Node_9:  {os:"Windows",role:"CMS Portal",   d:2,nb:["Node_14"]},
+      Node_10: {os:"Linux",  role:"Log Collector", d:3,nb:["Node_15"]},
+      Node_11: {os:"Windows",role:"Service Bus",   d:3,nb:["Node_15","Node_16"]},
+      Node_12: {os:"Linux",  role:"Task Queue",    d:3,nb:["Node_16"]},
+      Node_13: {os:"Windows",role:"Config Store",  d:3,nb:["Node_16","Node_17"]},
+      Node_14: {os:"Linux",  role:"Scheduler",     d:3,nb:["Node_17"]},
+      Node_15: {os:"Windows",role:"Admin Panel",   d:4,nb:["Node_18"]},
+      Node_16: {os:"Linux",  role:"Data Pipeline", d:4,nb:["Node_18","Node_19"]},
+      Node_17: {os:"Windows",role:"Backup Server", d:4,nb:["Node_19"]},
+      Node_18: {os:"Linux",  role:"Core Engine",   d:5,nb:["Node_20"]},
+      Node_19: {os:"Windows",role:"Key Vault",     d:5,nb:["Node_20"]},
+      Node_20: {os:"Linux",  role:"Vault Core 🗄️", d:6,nb:[]},
+    };
+    const VU={Linux:1.2,Windows:1.0};
+    const MAX_D=6;
+
+    function vuln(id){return(VU[NET[id].os]||1)+0.15*NET[id].d}
+
+    function astar(){
+      const open=[{f:0,g:0,n:"Node_1",p:["Node_1"]}],vis=new Set(),ev=[];
+      while(open.length){
+        open.sort((a,b)=>a.f-b.f);
+        const c=open.shift();
+        if(vis.has(c.n))continue;vis.add(c.n);
+        if(c.n==="Node_20")return{path:c.p,ev};
+        for(const nb of NET[c.n].nb){
+          if(vis.has(nb))continue;
+          const v=vuln(nb),hop=Math.max(0,MAX_D-NET[nb].d),g=c.g+1,h=hop/v,f=g+h;
+          ev.push({n:nb,par:c.n,g,h:+h.toFixed(2),f:+f.toFixed(2),v:+v.toFixed(2),hop});
+          open.push({f,g,n:nb,p:[...c.p,nb]});
+        }
+      }
+      return{path:["Node_1"],ev:[]};
+    }
+
+    // Compact positions for 20 nodes in 7 layers
+    const P={
+      Node_1:  {x:5,   y:240},
+      Node_2:  {x:130, y:80},
+      Node_3:  {x:130, y:240},
+      Node_4:  {x:130, y:400},
+      Node_5:  {x:270, y:10},
+      Node_6:  {x:270, y:105},
+      Node_7:  {x:270, y:210},
+      Node_8:  {x:270, y:330},
+      Node_9:  {x:270, y:440},
+      Node_10: {x:420, y:30},
+      Node_11: {x:420, y:140},
+      Node_12: {x:420, y:250},
+      Node_13: {x:420, y:350},
+      Node_14: {x:420, y:450},
+      Node_15: {x:580, y:80},
+      Node_16: {x:580, y:240},
+      Node_17: {x:580, y:400},
+      Node_18: {x:740, y:150},
+      Node_19: {x:740, y:340},
+      Node_20: {x:900, y:240},
+    };
+    const NW=105,NH=90;
+
+    const{path,ev}=astar();
+    const optS=new Set(path);
+    const box=document.getElementById('tb');
+    const svg=document.getElementById('svg');
+
+    for(const e of ev){
+      const fp=P[e.par],tp=P[e.n];
+      if(!fp||!tp)continue;
+      const isO=optS.has(e.par)&&optS.has(e.n);
+      const ln=document.createElementNS("http://www.w3.org/2000/svg","line");
+      ln.setAttribute("x1",fp.x+NW);ln.setAttribute("y1",fp.y+NH/2);
+      ln.setAttribute("x2",tp.x);ln.setAttribute("y2",tp.y+NH/2);
+      ln.classList.add(isO?"lo":"lp");
+      svg.appendChild(ln);
+    }
+
+    function icon(os){return os==="Linux"?"🐧":os==="Windows"?"💻":"🖥️"}
+
+    for(const[id,info]of Object.entries(NET)){
+      const p=P[id],onP=optS.has(id),isTgt=id==="Node_20",isSt=id==="Node_1";
+      const ed=ev.find(e=>e.n===id);
+      let cls="nd",bc="",bt="";
+      if(isTgt){cls+=" tgt";bc="nb-t";bt="🎯 TARGET"}
+      else if(isSt){cls+=" sta";bc="nb-s";bt="🏁 START"}
+      else if(onP){cls+=" opt";bc="nb-o";bt="⭐ OPTIMAL"}
+      else{cls+=" pru";bc="nb-p";bt="✂️ PRUNED"}
+
+      let sc="";
+      if(ed){
+        sc=`<div class="sg"><span class="sl">g:</span><span class="sv">${ed.g}</span><span class="sl">v:</span><span class="sv">${ed.v}</span><span class="sl">d:</span><span class="sv">${ed.hop}</span><span class="sl">h:</span><span class="sv">${ed.h}</span><div class="st"><span>f(n)</span><span class="fn">${ed.f}</span></div></div>`;
+      }else if(isSt){
+        sc=`<div class="sg"><span class="sl">g:</span><span class="sv">0</span><span class="sl">d:</span><span class="sv">${MAX_D}</span><div class="st"><span>f(n)</span><span class="fn">START</span></div></div>`;
+      }else if(isTgt){
+        sc=`<div class="sg"><span class="sl">d:</span><span class="sv">0</span><div class="st"><span>f(n)</span><span class="fn">GOAL</span></div></div>`;
+      }
+
+      const d=document.createElement('div');
+      d.className=cls;d.style.left=p.x+"px";d.style.top=p.y+"px";
+      d.innerHTML=`<div class="nh"><span class="ni">${icon(info.os)}</span><div><div class="nn">${id}</div><div class="nr">${info.role}</div></div></div><span class="nb ${bc}">${bt}</span>${sc}`;
+      box.appendChild(d);
+    }
+
+    const ptb=document.getElementById('ptb');
+    const sorted=[...ev].sort((a,b)=>{const ao=optS.has(a.n)?0:1,bo=optS.has(b.n)?0:1;if(ao!==bo)return ao-bo;return a.f-b.f});
+    for(const e of sorted){
+      const tr=document.createElement('tr');
+      tr.className=optS.has(e.n)?"sel":"dim";
+      tr.innerHTML=`<td>${optS.has(e.n)?'⭐':''}</td><td>${e.n}</td><td>${e.g}</td><td>${e.h}</td><td>${e.f}</td>`;
+      ptb.appendChild(tr);
+    }
+  </script>
+</body>
+</html>

@@ -13,16 +13,26 @@ import { ShieldAlert, ShieldCheck, TerminalSquare, Server, Database, Globe, Netw
 
 // Hardcoded friendly names to make the simulation easier to understand
 const NODE_ROLES = {
-  1: { role: "Public Gateway", icon: Globe },
-  2: { role: "Web Server Alpha", icon: Server },
-  3: { role: "Web Server Beta", icon: Server },
-  4: { role: "Auth Server", icon: ShieldCheck },
-  5: { role: "API Gateway", icon: Network },
-  6: { role: "Internal App A", icon: TerminalSquare },
-  7: { role: "Internal App B", icon: TerminalSquare },
-  8: { role: "Log Server", icon: Server },
-  9: { role: "Cache Layer", icon: Server },
-  10: { role: "Vault Core", icon: Database },
+  1:  { role: "Public Gateway", icon: Globe },
+  2:  { role: "DMZ Server α", icon: Server },
+  3:  { role: "DMZ Server β", icon: Server },
+  4:  { role: "DMZ Server γ", icon: Server },
+  5:  { role: "Web App", icon: TerminalSquare },
+  6:  { role: "API Gateway", icon: Network },
+  7:  { role: "Auth Server", icon: ShieldCheck },
+  8:  { role: "App Server", icon: Server },
+  9:  { role: "CMS Portal", icon: TerminalSquare },
+  10: { role: "Log Collector", icon: Server },
+  11: { role: "Service Bus", icon: Network },
+  12: { role: "Task Queue", icon: Server },
+  13: { role: "Config Store", icon: ShieldCheck },
+  14: { role: "Scheduler", icon: TerminalSquare },
+  15: { role: "Admin Panel", icon: ShieldCheck },
+  16: { role: "Data Pipeline", icon: Network },
+  17: { role: "Backup Server", icon: Server },
+  18: { role: "Core Engine", icon: Server },
+  19: { role: "Key Vault", icon: ShieldCheck },
+  20: { role: "Vault Core", icon: Database },
 };
 
 // Custom Node Component for A.R.M.O.R
@@ -54,12 +64,15 @@ const ArmorNode = ({ data, id }) => {
         </div>
 
         <div className="node-stats">
-          <div className="stat-row">
-            <span className="stat-label">CPU Usage</span>
-            <div className="stat-bar-container">
-              <div className={`stat-bar ${isHighCpu ? 'high' : ''}`} style={{ width: `${data.cpu_usage}%` }}></div>
+          {data.status === 'ROOT_ACCESS' ? (
+            <div className="stat-row" style={{ justifyContent: 'center', background: 'rgba(239, 68, 68, 0.2)', padding: '6px', borderRadius: '4px', border: '1px solid rgba(239, 68, 68, 0.5)' }}>
+              <span className="stat-label" style={{ color: '#ef4444', fontStyle: 'italic', letterSpacing: '2px', fontSize: '9px', fontWeight: '800' }}>⚠️ DATA BREACHED</span>
             </div>
-          </div>
+          ) : (
+            <div className="stat-row" style={{ justifyContent: 'center', background: 'rgba(0,0,0,0.2)', padding: '6px', borderRadius: '4px' }}>
+              <span className="stat-label" style={{ color: '#64748b', fontStyle: 'italic', letterSpacing: '2px', fontSize: '9px', fontWeight: '700' }}>🔒 DATA ENCRYPTED</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -72,24 +85,40 @@ const nodeTypes = {
   armor: ArmorNode,
 };
 
-// Deeper, sprawling layout algorithm
+// 20-node 7-layer layout
 const getInitialLayout = (nodesData) => {
   return nodesData.map((node) => {
     let x, y;
-    // node.id is "Node_1", "Node_2" etc — extract the number
     const num = parseInt(node.id.replace('Node_', ''), 10);
 
     switch(num) {
-      case 1:  x = 50;   y = 350; break; // Entry Zone
-      case 2:  x = 350;  y = 150; break; // DMZ Zone (Top)
-      case 3:  x = 350;  y = 550; break; // DMZ Zone (Bottom)
-      case 4:  x = 650;  y = 150; break; // App Layer (Top)
-      case 5:  x = 650;  y = 350; break; // App Layer (Middle)
-      case 6:  x = 650;  y = 550; break; // App Layer (Bottom)
-      case 7:  x = 950;  y = 150; break; // Internal Services (Top)
-      case 8:  x = 950;  y = 350; break; // Internal Services (Middle)
-      case 9:  x = 950;  y = 550; break; // Internal Services (Bottom)
-      case 10: x = 1250; y = 350; break; // Core Vault target
+      // Layer 0: Gateway
+      case 1:  x = 50;   y = 400; break;
+      // Layer 1: DMZ (3 nodes)
+      case 2:  x = 330;  y = 150; break;
+      case 3:  x = 330;  y = 400; break;
+      case 4:  x = 330;  y = 650; break;
+      // Layer 2: App (5 nodes)
+      case 5:  x = 610;  y = 50;  break;
+      case 6:  x = 610;  y = 200; break;
+      case 7:  x = 610;  y = 400; break;
+      case 8:  x = 610;  y = 600; break;
+      case 9:  x = 610;  y = 750; break;
+      // Layer 3: Services (5 nodes)
+      case 10: x = 890;  y = 100; break;
+      case 11: x = 890;  y = 280; break;
+      case 12: x = 890;  y = 460; break;
+      case 13: x = 890;  y = 600; break;
+      case 14: x = 890;  y = 750; break;
+      // Layer 4: Internal (3 nodes)
+      case 15: x = 1170; y = 180; break;
+      case 16: x = 1170; y = 420; break;
+      case 17: x = 1170; y = 660; break;
+      // Layer 5: Core (2 nodes)
+      case 18: x = 1450; y = 280; break;
+      case 19: x = 1450; y = 540; break;
+      // Layer 6: Database
+      case 20: x = 1730; y = 400; break;
       default: x = 0;    y = 0;
     }
 
@@ -106,26 +135,43 @@ const getInitialLayout = (nodesData) => {
 const getInitialEdges = (nodesData) => {
   const edges = [];
 
-  // Matches the new branching topology in backend/engine/network.py
   const connections = [
-    // Entry → DMZ
+    // Gateway → DMZ
     { source: 'Node_1', target: 'Node_2' },
     { source: 'Node_1', target: 'Node_3' },
-    // DMZ → App (cross-links)
-    { source: 'Node_2', target: 'Node_4' },
+    { source: 'Node_1', target: 'Node_4' },
+    // DMZ → App
     { source: 'Node_2', target: 'Node_5' },
-    { source: 'Node_3', target: 'Node_5' },
+    { source: 'Node_2', target: 'Node_6' },
     { source: 'Node_3', target: 'Node_6' },
-    // App → Internal (multiple paths)
-    { source: 'Node_4', target: 'Node_7' },
+    { source: 'Node_3', target: 'Node_7' },
     { source: 'Node_4', target: 'Node_8' },
-    { source: 'Node_5', target: 'Node_8' },
-    { source: 'Node_6', target: 'Node_8' },
-    { source: 'Node_6', target: 'Node_9' },
-    // Internal → Vault (3 paths)
-    { source: 'Node_7', target: 'Node_10' },
-    { source: 'Node_8', target: 'Node_10' },
-    { source: 'Node_9', target: 'Node_10' },
+    { source: 'Node_4', target: 'Node_9' },
+    // App → Services
+    { source: 'Node_5', target: 'Node_10' },
+    { source: 'Node_6', target: 'Node_10' },
+    { source: 'Node_6', target: 'Node_11' },
+    { source: 'Node_7', target: 'Node_11' },
+    { source: 'Node_7', target: 'Node_12' },
+    { source: 'Node_8', target: 'Node_13' },
+    { source: 'Node_8', target: 'Node_12' },
+    { source: 'Node_9', target: 'Node_14' },
+    // Services → Internal
+    { source: 'Node_10', target: 'Node_15' },
+    { source: 'Node_11', target: 'Node_15' },
+    { source: 'Node_11', target: 'Node_16' },
+    { source: 'Node_12', target: 'Node_16' },
+    { source: 'Node_13', target: 'Node_16' },
+    { source: 'Node_13', target: 'Node_17' },
+    { source: 'Node_14', target: 'Node_17' },
+    // Internal → Core
+    { source: 'Node_15', target: 'Node_18' },
+    { source: 'Node_16', target: 'Node_18' },
+    { source: 'Node_16', target: 'Node_19' },
+    { source: 'Node_17', target: 'Node_19' },
+    // Core → Database
+    { source: 'Node_18', target: 'Node_20' },
+    { source: 'Node_19', target: 'Node_20' },
   ];
 
   connections.forEach((conn) => {
@@ -150,7 +196,6 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const ws = useRef(null);
 
-  // Convert backend nodes dict to a flat array with ip_address injected
   const enrichNodes = (nodesDict) =>
     Object.entries(nodesDict).map(([id, data]) => ({
       ...data,
@@ -159,7 +204,6 @@ export default function App() {
     }));
 
   useEffect(() => {
-    // ── Connect to the CORRECT WebSocket path ─────────────────────────────
     ws.current = new WebSocket('ws://localhost:8000/ws/combat');
 
     ws.current.onopen = () => {
@@ -167,22 +211,17 @@ export default function App() {
     };
 
     ws.current.onmessage = (event) => {
-      // Backend broadcasts: { nodes: { Node_1: {...}, ... }, edges: [...] }
       const message = JSON.parse(event.data);
-
-      // Skip BFS scan replies (they have bfs_order not nodes)
       if (!message.nodes) return;
 
       const nodesArray = enrichNodes(message.nodes);
 
       setNodes((nds) => {
         if (nds.length === 0) {
-          // First message — do full layout init
           const layout = getInitialLayout(nodesArray);
           setEdges(getInitialEdges(nodesArray));
           return layout;
         }
-        // Subsequent messages — just update data in-place
         return nds.map((node) => {
           const updated = nodesArray.find((n) => n.id === node.id);
           if (updated) return { ...node, data: updated };
@@ -190,10 +229,9 @@ export default function App() {
         });
       });
 
-      // Animate edges red when source is under attack
       setEdges((eds) =>
         eds.map((e) => {
-          const src = message.nodes[e.source];   // e.source is already "Node_1" etc.
+          const src = message.nodes[e.source];
           const isUnderAttack =
             src && ['EXPOSED', 'COMPROMISED', 'ROOT_ACCESS'].includes(src.status);
           return isUnderAttack
@@ -204,7 +242,6 @@ export default function App() {
         })
       );
 
-      // Add a log entry whenever a node changes to a bad state
       nodesArray.forEach((n) => {
         if (n.status === 'ROOT_ACCESS') {
           addLocalLog('Red Team', `ROOT_ACCESS gained on ${n.id} (${n.ip_address})`, 'critical');
@@ -249,6 +286,21 @@ export default function App() {
         <div className="header-info">
            <p>Watch as the <strong>Red Team (Attacker)</strong> tries to reach the Vault Core,</p>
            <p>while the <strong>Blue Team (Defender)</strong> patches servers in real-time.</p>
+           <div style={{ display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'center' }}>
+             <a href="/game_tree.html" target="_blank" rel="noopener noreferrer" style={{
+               padding: '6px 16px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
+               borderRadius: '8px', color: '#ef4444', fontSize: '12px', fontWeight: 700,
+               textDecoration: 'none', letterSpacing: '0.5px', pointerEvents: 'auto',
+               transition: 'all 0.2s'
+             }}>🌳 View A* Game Tree →</a>
+             
+             <a href="/minimax_tree.html" target="_blank" rel="noopener noreferrer" style={{
+               padding: '6px 16px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.4)',
+               borderRadius: '8px', color: '#3b82f6', fontSize: '12px', fontWeight: 700,
+               textDecoration: 'none', letterSpacing: '0.5px', pointerEvents: 'auto',
+               transition: 'all 0.2s'
+             }}>🛡️ View Minimax Tree →</a>
+           </div>
         </div>
       </header>
 
@@ -260,6 +312,7 @@ export default function App() {
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           fitView
+          fitViewOptions={{ padding: 0.3 }}
           className="flow-bg"
         >
           <Background color="#334155" gap={25} size={1.5} />
@@ -295,3 +348,4 @@ export default function App() {
     </div>
   );
 }
+

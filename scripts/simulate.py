@@ -15,10 +15,15 @@ import requests
 
 API_URL  = "http://localhost:8000/api"
 
-ATTACK_DELAY  = 1.0
-DEFENSE_DELAY = 0.2
-TURN_PAUSE    = 0.5
+ATTACK_DELAY  = 0.05
+DEFENSE_DELAY = 0.01
+TURN_PAUSE    = 0.05
 WIN_TURNS     = 5
+
+# --- LOOP BREAKING STATE ---
+BLUE_BUDGET = 100
+ATTACK_COUNTS = {}
+# ---------------------------
 
 RED   = "\033[91m"
 GREEN = "\033[92m"
@@ -36,7 +41,7 @@ STATUS_ICON = {
 
 RULES = [
     {"id": "R1", "sev": 10, "desc": "Database breached — emergency patch",
-     "cond": lambda n: n["os_type"] == "Database"
+     "cond": lambda n: n.get("is_database", False)
                         and n["status"] in ("COMPROMISED", "ROOT_ACCESS"),
      "act":  "patch"},
     {"id": "R2", "sev": 9,  "desc": "ROOT_ACCESS — full patch",
@@ -53,14 +58,17 @@ RULES = [
      "act":  "kill_process"},
 ]
 
-# Depth = shortest hops from internet to each node (new branching topology)
+# Depth = shortest hops from internet to each node (20-node topology)
 DEPTH = {
     "Node_1":  0,
-    "Node_2":  1, "Node_3":  1,
-    "Node_4":  2, "Node_5":  2, "Node_6":  2,
-    "Node_7":  3, "Node_8":  3, "Node_9":  3,
-    "Node_10": 4,
+    "Node_2":  1, "Node_3":  1, "Node_4":  1,
+    "Node_5":  2, "Node_6":  2, "Node_7":  2, "Node_8":  2, "Node_9":  2,
+    "Node_10": 3, "Node_11": 3, "Node_12": 3, "Node_13": 3, "Node_14": 3,
+    "Node_15": 4, "Node_16": 4, "Node_17": 4,
+    "Node_18": 5, "Node_19": 5,
+    "Node_20": 6,
 }
+DATABASE_NODE = "Node_20"
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -90,16 +98,21 @@ def get_nodes():
 # ══════════════════════════════════════════════════════════════════════════
 
 def red_team_turn(nodes, owned_nodes):
+    global ATTACK_COUNTS
     pivot = (max(owned_nodes, key=lambda nid: DEPTH.get(nid, 0))
              if owned_nodes else "Node_1")
 
-    db_targets  = [n for n in nodes if n["os_type"] == "Database"
-                   and n["status"] in ("EXPOSED", "COMPROMISED")]
+    # Filter out nodes that have been attacked >= 3 times (Burnout)
+    db_targets  = [n for n in nodes if n.get("is_database", False)
+                   and n["status"] in ("EXPOSED", "COMPROMISED")
+                   and ATTACK_COUNTS.get(n["id"], 0) < 3]
     compromised = sorted(
-        [n for n in nodes if n["status"] == "COMPROMISED" and n["os_type"] != "Database"],
+        [n for n in nodes if n["status"] == "COMPROMISED" and not n.get("is_database", False)
+         and ATTACK_COUNTS.get(n["id"], 0) < 3],
         key=lambda n: DEPTH.get(n["id"], 0), reverse=True)
     exposed     = sorted(
-        [n for n in nodes if n["status"] == "EXPOSED" and n["os_type"] != "Database"],
+        [n for n in nodes if n["status"] == "EXPOSED" and not n.get("is_database", False)
+         and ATTACK_COUNTS.get(n["id"], 0) < 3],
         key=lambda n: DEPTH.get(n["id"], 0), reverse=True)
 
     # Nothing exposed anywhere — trigger pivot BFS rescan
@@ -117,12 +130,17 @@ def red_team_turn(nodes, owned_nodes):
     red_wins = False
 
     def attack(target):
+        global ATTACK_COUNTS
         nonlocal owned_nodes, red_wins
         nid  = target["id"]
         stat = target["status"]
+        
+        ATTACK_COUNTS[nid] = ATTACK_COUNTS.get(nid, 0) + 1
+        burnout = ATTACK_COUNTS[nid]
+        
         desc = ("EXPLOIT → COMPROMISED" if stat == "EXPOSED"
                 else "ESCALATE → ROOT_ACCESS")
-        rprint(f"[pivot:{pivot}] {nid} — {desc}")
+        rprint(f"[pivot:{pivot}] {nid} — {desc} (Attempts: {burnout}/3)")
         time.sleep(ATTACK_DELAY)
         r  = requests.post(f"{API_URL}/attack", json={"target_node_id": nid})
         js = r.json() if r.status_code == 200 else {}
@@ -140,7 +158,7 @@ def red_team_turn(nodes, owned_nodes):
                 if sr.status_code == 200:
                     exposed_now = sr.json().get("exposed_this_scan", [])
                     rprint(f"  → New targets exposed: {exposed_now}")
-                if target["os_type"] == "Database":
+                if target.get("is_database", False):
                     red_wins = True
         else:
             rprint(f"  → {nid} already patched")
@@ -189,6 +207,12 @@ def red_team_turn(nodes, owned_nodes):
 # ══════════════════════════════════════════════════════════════════════════
 
 def blue_team_turn(nodes):
+    global BLUE_BUDGET
+    
+    if BLUE_BUDGET <= 0:
+        bprint("🚨 BLUE TEAM IS EXHAUSTED! Out of budget, turn skipped.")
+        return
+
     alerts = []
     for n in nodes:
         for rule in RULES:
@@ -197,14 +221,20 @@ def blue_team_turn(nodes):
     alerts.sort(key=lambda x: x[0], reverse=True)
 
     if not alerts:
-        # Minimax: harden the most at-risk SECURE-bound node
-        ORDER = ["EXPOSED", "COMPROMISED", "ROOT_ACCESS"]
-        cands = [n for n in nodes if n["status"] in ORDER]
-        if cands:
-            worst = max(cands, key=lambda n: ORDER.index(n["status"]))
-            bprint(f"[MINIMAX] Preemptive hardening → {worst['id']}")
+        # Proactive Hardening: When no active alerts exist, harden the most at-risk SECURE node
+        # (closest to the internet or with highest vulnerability)
+        secure_nodes = [n for n in nodes if n["status"] == "SECURE" and n["id"] != "Node_1"]
+        if secure_nodes:
+            if BLUE_BUDGET < 15:
+                bprint("All nodes SECURE. Too poor to proactively harden.")
+                return
+            BLUE_BUDGET -= 15
+            # Pick a node closest to the gateway (depth 1 or 2) to harden
+            worst = min(secure_nodes, key=lambda n: DEPTH.get(n["id"], 99))
+            bprint(f"[PROACTIVE] Preemptive hardening → {worst['id']} (-15 pts)")
+            bprint(f"💰 BUDGET REMAINING: {BLUE_BUDGET}/100")
             requests.post(f"{API_URL}/patch", json={"target_node_id": worst["id"]})
-            info(f"📦 Patch → {worst['id']}")
+            info(f"  📦 Patch → {worst['id']}")
         else:
             bprint("All nodes SECURE. Monitoring...")
         return
@@ -217,7 +247,16 @@ def blue_team_turn(nodes):
         if nid in handled:
             continue
         act = rule["act"]
-        bprint(f"[Rule {rule['id']} | sev={sev}] {rule['desc']} → {nid}")
+        
+        cost = 15 if act == "patch" else 10 if act == "block_port" else 5
+        if BLUE_BUDGET < cost:
+            bprint(f"🚨 Not enough budget for {act} on {nid} (Cost: {cost}, Bank: {BLUE_BUDGET}). Skipping.")
+            continue
+            
+        BLUE_BUDGET -= cost
+        bprint(f"[Rule {rule['id']} | sev={sev}] {rule['desc']} → {nid} (-{cost} pts)")
+        bprint(f"💰 BUDGET REMAINING: {BLUE_BUDGET}/100")
+        
         if act == "patch":
             requests.post(f"{API_URL}/patch", json={"target_node_id": nid})
             info(f"  📦 Patch → {nid}")
@@ -236,6 +275,10 @@ def blue_team_turn(nodes):
 # ══════════════════════════════════════════════════════════════════════════
 
 def main():
+    global BLUE_BUDGET, ATTACK_COUNTS
+    BLUE_BUDGET = 100
+    ATTACK_COUNTS = {}
+    
     print(f"\n{BOLD}{CYAN}{'═'*58}")
     print(f"   A.R.M.O.R  —  RED vs BLUE  (Pivot BFS + 2-strike Red)")
     print(f"{'═'*58}{RST}")

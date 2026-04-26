@@ -1,0 +1,262 @@
+/* ═══════════════════════════════════════════════════════════════
+   GameTree.css — A* Decision Tree Visualizer Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+.gt-wrapper {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-main);
+}
+
+/* ── Tree Canvas ──────────────────────────────────────── */
+.gt-canvas {
+  flex: 1;
+  padding: 30px;
+  overflow: auto;
+  position: relative;
+}
+.gt-container {
+  position: relative;
+  min-width: 1130px;
+  min-height: 600px;
+}
+
+/* ── SVG Lines ──────────────────────────────────────── */
+.gt-lines {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+.gt-lines line { stroke-width: 2; }
+.gt-line-optimal {
+  stroke: #ef4444;
+  stroke-width: 3;
+  stroke-dasharray: 10 5;
+  animation: gt-dash 1s linear infinite;
+}
+.gt-line-pruned {
+  stroke: #64748b;
+  stroke-dasharray: 6 4;
+  opacity: 0.4;
+}
+@keyframes gt-dash { to { stroke-dashoffset: -20; } }
+
+/* ── Tree Nodes ──────────────────────────────────────── */
+.gt-node {
+  position: absolute;
+  background: var(--bg-panel);
+  border: 2px solid var(--color-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  min-width: 170px;
+  z-index: 2;
+  transition: all 0.3s ease;
+}
+.gt-node:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+.gt-optimal {
+  border-color: #ef4444;
+  box-shadow: 0 0 20px rgba(239,68,68,0.25);
+  animation: gt-pulse-red 3s ease-in-out infinite;
+}
+.gt-pruned {
+  border-color: #64748b;
+  opacity: 0.5;
+  border-style: dashed;
+}
+.gt-target {
+  border-color: #fbbf24;
+  box-shadow: 0 0 30px rgba(251,191,36,0.3);
+  background: linear-gradient(135deg, #1e293b, #292524);
+  animation: gt-pulse-gold 3s ease-in-out infinite;
+}
+.gt-start {
+  border-color: #3b82f6;
+  box-shadow: 0 0 20px rgba(59,130,246,0.25);
+}
+
+@keyframes gt-pulse-red {
+  0%, 100% { box-shadow: 0 0 20px rgba(239,68,68,0.2); }
+  50% { box-shadow: 0 0 35px rgba(239,68,68,0.4); }
+}
+@keyframes gt-pulse-gold {
+  0%, 100% { box-shadow: 0 0 25px rgba(251,191,36,0.2); }
+  50% { box-shadow: 0 0 45px rgba(251,191,36,0.4); }
+}
+
+.gt-node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.gt-node-icon { font-size: 20px; }
+.gt-node-name { font-weight: 700; font-size: 13px; }
+.gt-node-role { font-size: 10px; color: var(--text-secondary); font-family: monospace; }
+
+.gt-node-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: monospace;
+  margin-top: 4px;
+}
+.gt-badge-optimal { background: #7f1d1d; color: #ef4444; }
+.gt-badge-pruned  { background: #1e293b; color: #64748b; }
+.gt-badge-target  { background: #422006; color: #fbbf24; }
+.gt-badge-start   { background: #172554; color: #3b82f6; }
+
+/* ── Score Grid ──────────────────────────────────────── */
+.gt-score-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 10px;
+  margin-top: 8px;
+  font-size: 10px;
+  font-family: monospace;
+}
+.gt-score-label { color: #64748b; }
+.gt-score-value { color: #e2e8f0; text-align: right; font-weight: 600; }
+.gt-score-total {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--color-border);
+  padding-top: 5px;
+  margin-top: 3px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+}
+.gt-fn { color: #fbbf24; }
+
+/* ── Sidebar ──────────────────────────────────────── */
+.gt-sidebar {
+  width: 340px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--color-border);
+  padding: 24px 20px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.gt-sidebar-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.gt-sidebar-sub { font-size: 12px; color: #64748b; margin-bottom: 20px; }
+
+.gt-box {
+  background: #1e293b;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.gt-box-title {
+  font-size: 11px; font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+.gt-formula {
+  font-family: monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fbbf24;
+  text-align: center;
+  padding: 8px 0;
+}
+.gt-box-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+.gt-box-desc code {
+  background: var(--bg-main);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+  color: #e2e8f0;
+  font-size: 11px;
+}
+.gt-box-desc strong { color: #fbbf24; }
+
+/* ── Table ──────────────────────────────────────── */
+.gt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.gt-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #64748b;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.gt-table td {
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(30,58,95,0.3);
+  font-family: monospace;
+  color: #94a3b8;
+}
+.gt-row-selected { background: rgba(239,68,68,0.08); }
+.gt-row-selected td { color: #ef4444 !important; font-weight: 600; }
+.gt-row-dimmed td { color: #475569; }
+
+/* ── Steps ──────────────────────────────────────── */
+.gt-steps { margin-top: 8px; }
+.gt-step { display: flex; gap: 10px; margin-bottom: 12px; }
+.gt-step-num {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--bg-main);
+  border: 1px solid var(--color-border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+.gt-step-text {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+.gt-step-text strong { color: #e2e8f0; }
+
+/* ── Tab Styles ──────────────────────────────────── */
+.tab-bar {
+  position: absolute;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  gap: 4px;
+  background: var(--bg-panel);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.tab-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  color: #64748b;
+}
+.tab-btn:hover { color: #94a3b8; background: rgba(255,255,255,0.05); }
+.tab-btn.active {
+  background: #1e293b;
+  color: #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}

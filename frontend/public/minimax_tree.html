@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A.R.M.O.R — Minimax Alpha-Beta Visualizer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0a0e1a; --card:#111827; --surface:#1e293b; --border:#1e3a5f;
+      --text:#e2e8f0; --muted:#64748b; --dim:#94a3b8;
+      --red:#ef4444; --blue:#3b82f6; --gold:#fbbf24; --green:#22c55e;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;height:100vh;overflow:hidden}
+
+    .hdr{height:56px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#0a0e1a,#111827)}
+    .hdr h1{font-size:18px;font-weight:800;letter-spacing:2px}
+    .hdr .acc{color:var(--blue)}
+    .hdr .sub{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace}
+    .legend{display:flex;gap:16px;font-size:11px;color:var(--dim)}
+    .legend-i{display:flex;align-items:center;gap:5px}
+    .legend-d{width:10px;height:10px;border-radius:50%}
+    .back-btn{padding:6px 14px;border-radius:6px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.4);color:var(--blue);font-size:11px;font-weight:700;text-decoration:none;font-family:'Inter',sans-serif}
+
+    .wrap{display:flex;height:calc(100vh - 56px)}
+    .canvas{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .tree-box{position:relative;width:900px;height:600px;}
+
+    .nd{position:absolute;background:var(--card);border:2px solid var(--border);border-radius:10px;padding:10px 14px;min-width:180px;z-index:2;transition:all 0.3s ease;}
+    .nd:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,0.4)}
+    
+    .nd.blue{border-color:var(--blue);box-shadow:0 0 16px rgba(59,130,246,0.2)}
+    .nd.blue.opt{box-shadow:0 0 20px rgba(59,130,246,0.4);animation:pb 3s ease-in-out infinite}
+    
+    .nd.red{border-color:var(--red);box-shadow:0 0 16px rgba(239,68,68,0.2)}
+    .nd.red.opt{box-shadow:0 0 20px rgba(239,68,68,0.4);animation:pr 3s ease-in-out infinite}
+
+    .nd.leaf{border-color:var(--gold);background:linear-gradient(135deg,#1e293b,#292524)}
+    .nd.pru{border-color:var(--muted);opacity:0.3;border-style:dashed}
+    
+    @keyframes pb{0%,100%{box-shadow:0 0 12px rgba(59,130,246,0.2)}50%{box-shadow:0 0 24px rgba(59,130,246,0.4)}}
+    @keyframes pr{0%,100%{box-shadow:0 0 12px rgba(239,68,68,0.2)}50%{box-shadow:0 0 24px rgba(239,68,68,0.4)}}
+
+    .nh{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+    .ni{font-size:18px}
+    .nn{font-weight:800;font-size:13px;letter-spacing:0.5px}
+    
+    .st{border-top:1px solid var(--border);padding-top:6px;margin-top:6px;display:flex;justify-content:space-between;font-size:11px;font-weight:700}
+    .fn{color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:13px}
+    
+    .lbl{position:absolute;font-size:10px;font-weight:700;color:var(--dim);background:var(--bg);padding:2px 6px;border-radius:4px;border:1px solid var(--border);z-index:3}
+    .lbl-blue{color:var(--blue);border-color:var(--blue)}
+    .lbl-red{color:var(--red);border-color:var(--red)}
+
+    .sg{display:flex;flex-direction:column;gap:2px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--dim)}
+
+    .lines{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+    .lines line{stroke-width:2}
+    .lo{stroke:var(--blue);stroke-width:3;stroke-dasharray:8 4;animation:ds 1s linear infinite}
+    .lp{stroke:var(--muted);stroke-dasharray:5 3;opacity:0.4}
+    @keyframes ds{to{stroke-dashoffset:-16}}
+
+    .side{width:320px;background:var(--card);border-left:1px solid var(--border);padding:20px 16px;overflow-y:auto;flex-shrink:0}
+    .side h2{font-size:15px;font-weight:700;margin-bottom:3px}
+    .side .ss{font-size:11px;color:var(--muted);margin-bottom:16px}
+    .bx{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px}
+    .bt{font-size:10px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+    
+    .bd{font-size:11px;color:var(--muted);line-height:1.5;}
+    .bd strong{color:var(--text)}
+    .bd code{background:var(--bg);padding:2px 4px;border-radius:3px;font-family:'JetBrains Mono',monospace;color:var(--gold);font-size:10px}
+
+    .tb{width:100%;border-collapse:collapse;font-size:10px;margin-top:6px}
+    .tb th{text-align:left;font-weight:600;color:var(--muted);padding:6px 3px;border-bottom:1px solid var(--border);font-size:9px}
+    .tb td{padding:6px 3px;border-bottom:1px solid rgba(30,58,95,0.3);font-family:'JetBrains Mono',monospace;color:var(--dim)}
+  </style>
+</head>
+<body>
+  <header class="hdr">
+    <div>
+      <h1>🛡️ A.R.M.O.R — <span class="acc">Minimax & α-β Pruning</span></h1>
+      <div class="sub">Blue Team Adversarial Search Visualizer</div>
+    </div>
+    <div class="legend">
+      <a href="/" class="back-btn">← Back to Network Map</a>
+      <div class="legend-i"><div class="legend-d" style="background:#3b82f6"></div> Blue (MAX)</div>
+      <div class="legend-i"><div class="legend-d" style="background:#ef4444"></div> Red (MIN)</div>
+      <div class="legend-i"><div class="legend-d" style="background:#fbbf24"></div> Leaf / Eval</div>
+      <div class="legend-i"><div class="legend-d" style="background:#64748b;border:1px dashed #94a3b8"></div> Pruned</div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="canvas">
+      <div class="tree-box">
+        <svg class="lines" id="svg"></svg>
+        
+        <!-- Root Node -->
+        <div class="nd blue opt" style="left:360px; top:20px">
+          <div class="nh"><span class="ni">🛡️</span><div class="nn">MAX: Blue's Turn</div></div>
+          <div class="sg">
+            <span>Node 5: EXPOSED</span>
+            <span>Node 8: COMPROMISED</span>
+          </div>
+          <div class="st"><span>Best Score:</span><span class="fn">12</span></div>
+          <div class="lbl lbl-blue" style="bottom:-24px; left:50%; transform:translateX(-50%)">α = 12</div>
+        </div>
+
+        <!-- Layer 1: Red's Responses -->
+        <!-- Branch A (Optimal) -->
+        <div class="lbl lbl-blue" style="top:110px; left:230px; transform:rotate(-35deg)">Patch Node 8</div>
+        <div class="nd red" style="left:80px; top:180px">
+          <div class="nh"><span class="ni">🔴</span><div class="nn">MIN: Red's Turn</div></div>
+          <div class="sg">
+            <span>Node 5: EXPOSED</span>
+            <span style="color:var(--green)">Node 8: SECURE</span>
+          </div>
+          <div class="st"><span>Min Score:</span><span class="fn">12</span></div>
+          <div class="lbl lbl-red" style="bottom:-24px; left:50%; transform:translateX(-50%)">β = 12</div>
+        </div>
+
+        <!-- Branch B (Sub-optimal) -->
+        <div class="lbl lbl-blue" style="top:110px; left:600px; transform:rotate(35deg)">Patch Node 5</div>
+        <div class="nd red" style="left:640px; top:180px">
+          <div class="nh"><span class="ni">🔴</span><div class="nn">MIN: Red's Turn</div></div>
+          <div class="sg">
+            <span style="color:var(--green)">Node 5: SECURE</span>
+            <span>Node 8: COMPROMISED</span>
+          </div>
+          <div class="st"><span>Min Score:</span><span class="fn">5</span></div>
+          <div class="lbl lbl-red" style="bottom:-24px; left:50%; transform:translateX(-50%)">β = 5</div>
+        </div>
+
+        <!-- Layer 2: Leaf Nodes -->
+        <!-- Branch A Leaves -->
+        <div class="lbl lbl-red" style="top:300px; left:40px; transform:rotate(-45deg)">Exploit N_5</div>
+        <div class="nd leaf opt" style="left:-60px; top:400px">
+          <div class="nh"><span class="ni">📊</span><div class="nn">Evaluate State</div></div>
+          <div class="sg">
+            <span style="color:var(--red)">Node 5: COMPROMISED</span>
+            <span style="color:var(--green)">Node 8: SECURE</span>
+          </div>
+          <div class="st"><span>Score:</span><span class="fn">12</span></div>
+        </div>
+
+        <div class="lbl lbl-red" style="top:300px; left:200px; transform:rotate(40deg)">Scan N_6</div>
+        <div class="nd leaf" style="left:200px; top:400px">
+          <div class="nh"><span class="ni">📊</span><div class="nn">Evaluate State</div></div>
+          <div class="sg">
+            <span style="color:var(--gold)">Node 5: EXPOSED</span>
+            <span style="color:var(--gold)">Node 6: EXPOSED</span>
+          </div>
+          <div class="st"><span>Score:</span><span class="fn">15</span></div>
+        </div>
+
+        <!-- Branch B Leaves -->
+        <div class="lbl lbl-red" style="top:300px; left:590px; transform:rotate(-45deg)">Escalate N_8</div>
+        <div class="nd leaf" style="left:500px; top:400px">
+          <div class="nh"><span class="ni">📊</span><div class="nn">Evaluate State</div></div>
+          <div class="sg">
+            <span style="color:var(--green)">Node 5: SECURE</span>
+            <span style="color:var(--red)">Node 8: ROOT_ACCESS</span>
+          </div>
+          <div class="st"><span>Score:</span><span class="fn">5</span></div>
+        </div>
+
+        <div class="lbl lbl-red" style="top:310px; left:750px; transform:rotate(40deg)">Pruned</div>
+        <div class="nd pru" style="left:760px; top:400px">
+          <div class="nh"><span class="ni">✂️</span><div class="nn">Branch Pruned</div></div>
+          <div class="sg" style="margin-top:10px">
+            Red has already found<br>
+            a move that yields 5.<br>
+            Blue is guaranteed 12.<br>
+            <strong style="color:var(--red);margin-top:6px">5 &le; 12 (β &le; α)</strong>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="side">
+      <h2>🛡️ Minimax + α-β Pruning</h2>
+      <p class="ss">How the Blue Team chooses defenses</p>
+
+      <div class="bx">
+        <div class="bt">The Goal</div>
+        <div class="bd">
+          Blue Team assumes Red Team plays perfectly.<br><br>
+          <strong>Blue (MAX):</strong> Wants to maximize the network score.<br>
+          <strong>Red (MIN):</strong> Wants to minimize the network score.
+        </div>
+      </div>
+
+      <div class="bx">
+        <div class="bt">Evaluation Weights</div>
+        <table class="tb">
+          <tr><th>Status</th><th>Score</th></tr>
+          <tr><td>✅ SECURE</td><td style="color:var(--green)">+10</td></tr>
+          <tr><td>⚠️ EXPOSED</td><td style="color:var(--gold)">+5</td></tr>
+          <tr><td>🔥 COMPROMISED</td><td style="color:#ef4444">+2</td></tr>
+          <tr><td>💀 ROOT_ACCESS</td><td style="color:#7f1d1d">-5</td></tr>
+        </table>
+      </div>
+
+      <div class="bx">
+        <div class="bt">Alpha-Beta Pruning</div>
+        <div class="bd">
+          <strong>Why cut off branches?</strong><br>
+          If Blue knows it can guarantee a score of <code>12</code> (by patching Node 8), it evaluates the alternative: Patching Node 5.<br><br>
+          As soon as Red finds a response that drops the score to <code>5</code>, Blue <strong>stops evaluating</strong> that branch. Blue knows patching Node 5 is a bad idea, so it doesn't waste time calculating Red's other possible attacks.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const svg = document.getElementById('svg');
+    const links = [
+      // Root to MIN
+      {x1: 450, y1: 100, x2: 170, y2: 180, cls: 'lo'}, // Path A
+      {x1: 450, y1: 100, x2: 730, y2: 180, cls: 'lp'}, // Path B
+      // MIN A to Leaves
+      {x1: 170, y1: 260, x2: 30, y2: 400, cls: 'lo'},  // A1
+      {x1: 170, y1: 260, x2: 290, y2: 400, cls: 'lp'}, // A2
+      // MIN B to Leaves
+      {x1: 730, y1: 260, x2: 590, y2: 400, cls: 'lp'}, // B1
+      {x1: 730, y1: 260, x2: 850, y2: 400, cls: 'lp'}, // B2 (Pruned)
+    ];
+
+    for(const l of links) {
+      const ln = document.createElementNS("http://www.w3.org/2000/svg","line");
+      ln.setAttribute("x1", l.x1); ln.setAttribute("y1", l.y1);
+      ln.setAttribute("x2", l.x2); ln.setAttribute("y2", l.y2);
+      ln.classList.add(l.cls);
+      svg.appendChild(ln);
+    }
+  </script>
+</body>
+</html>
