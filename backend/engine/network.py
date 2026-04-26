@@ -190,6 +190,19 @@ class NetworkEnvironment:
             "nodes": {n_id: n.to_dict() for n_id, n in self.nodes.items()},
             "edges": self.edges
         }
+        
+    def to_dict(self):
+        return {
+            "nodes": {n_id: n.to_dict() for n_id, n in self.nodes.items()},
+            "edges": self.edges
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        env = cls()
+        env.edges = data["edges"]
+        env.nodes = {n_id: Node.from_dict(n_data) for n_id, n_data in data["nodes"].items()}
+        return env
 
     # ── Helpers for A* heuristic ──────────────────────────────────────────
 

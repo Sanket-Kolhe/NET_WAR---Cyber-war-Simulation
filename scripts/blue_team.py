@@ -26,6 +26,9 @@ Layer 2 — Minimax + Alpha-Beta pruning (proactive defense)
 import time
 import requests
 
+session = requests.Session()
+session.headers.update({"X-API-Key": "supersecret"})
+
 API_URL = "http://localhost:8000/api"
 
 def print_action(msg):
@@ -301,18 +304,18 @@ def execute_action(rule: dict, node: dict):
     action  = rule["action"]
 
     if action == "patch":
-        r = requests.post(f"{API_URL}/patch", json={"target_node_id": node_id})
+        r = session.post(f"{API_URL}/patch", json={"target_node_id": node_id})
         status = "✅" if r.status_code == 200 else "❌"
         print_action(f"  📦 Patch {status} → {node_id}")
 
     elif action == "kill_process":
-        r = requests.post(f"{API_URL}/kill_process", json={"target_node_id": node_id})
+        r = session.post(f"{API_URL}/kill_process", json={"target_node_id": node_id})
         status = "✅" if r.status_code == 200 else "❌"
         print_action(f"  🔪 Kill {status} → {node_id}")
 
     elif action == "block_port":
         port = rule["port_selector"](node)
-        r = requests.post(f"{API_URL}/block_port",
+        r = session.post(f"{API_URL}/block_port",
                           json={"target_node_id": node_id, "port": port})
         status = "✅" if r.status_code == 200 else "❌"
         print_action(f"  🔒 Block port {port} {status} → {node_id}")
@@ -337,7 +340,7 @@ def run_defender_ai():
     while True:
         try:
             # ── Observe ─────────────────────────────────────────────────────
-            response = requests.get(f"{API_URL}/nodes")
+            response = session.get(f"{API_URL}/nodes")
             if response.status_code != 200:
                 print_action("Failed to fetch node states.")
                 time.sleep(1)
@@ -393,7 +396,7 @@ def run_defender_ai():
                                  f"Preemptive hardening → {target}")
                     if threat_levels:
                         print_action(f"   (threat context: {threat_levels})")
-                    r = requests.post(f"{API_URL}/patch",
+                    r = session.post(f"{API_URL}/patch",
                                       json={"target_node_id": target})
                     status = "✅" if r.status_code == 200 else "❌"
                     print_action(f"[MINIMAX] Preemptive patch {status} on {target}")

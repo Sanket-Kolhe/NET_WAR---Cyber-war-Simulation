@@ -19,6 +19,9 @@ import time
 import heapq
 import requests
 
+session = requests.Session()
+session.headers.update({"X-API-Key": "supersecret"})
+
 API_URL = "http://localhost:8000/api"
 
 # ── Timing ────────────────────────────────────────────────────────────────────
@@ -159,7 +162,7 @@ def full_kill_chain(node: dict) -> str:
     # Hit 1: EXPOSED → COMPROMISED
     print_action(f"⚔️  [{node_id}] Exploit → {ip}...")
     time.sleep(ATTACK_STEP_DELAY)
-    r = requests.post(f"{API_URL}/attack", json={"target_node_id": node_id})
+    r = session.post(f"{API_URL}/attack", json={"target_node_id": node_id})
     result = r.json() if r.status_code == 200 else {}
     status = result.get("new_status", "UNKNOWN")
     if not result.get("success") or status == "SECURE":
@@ -170,7 +173,7 @@ def full_kill_chain(node: dict) -> str:
     # Hit 2: COMPROMISED → ROOT_ACCESS
     print_action(f"🔺 [{node_id}] Privilege Escalation → {ip}...")
     time.sleep(ATTACK_STEP_DELAY)
-    r2 = requests.post(f"{API_URL}/attack", json={"target_node_id": node_id})
+    r2 = session.post(f"{API_URL}/attack", json={"target_node_id": node_id})
     result2 = r2.json() if r2.status_code == 200 else {}
     status2 = result2.get("new_status", "UNKNOWN")
     if not result2.get("success") or status2 == "SECURE":
@@ -209,7 +212,7 @@ def run_attacker_ai():
 
         # ── Phase 1: Scan + A* pathfinding ────────────────────────────────
         print_action("Running network scan...")
-        response = requests.post(f"{API_URL}/scan")
+        response = session.post(f"{API_URL}/scan")
         if response.status_code != 200:
             print_action("Scan failed — retrying in 3s")
             time.sleep(3)
@@ -220,7 +223,7 @@ def run_attacker_ai():
         bfs_order = data.get("bfs_order", [])
 
         # Get full node list for A* computation
-        all_nodes = requests.get(f"{API_URL}/nodes").json()
+        all_nodes = session.get(f"{API_URL}/nodes").json()
 
         # Compute A* optimal attack path
         attack_path = astar_attack_path(all_nodes)

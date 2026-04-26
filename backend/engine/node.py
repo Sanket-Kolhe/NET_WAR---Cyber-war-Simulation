@@ -42,3 +42,13 @@ class Node:
             "scan_rate":     self.scan_rate,
             "is_database":   self.is_database,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        node = cls(node_id=data["id"], os_type=data["os"], is_database=data["is_database"])
+        node.status = data["status"]
+        node.cpu_usage = data["cpu"]
+        node.open_ports = data["ports"]
+        node.blocked_ports = data.get("blocked_ports", [])
+        node.scan_rate = data.get("scan_rate", 0)
+        return node

@@ -1,10 +1,29 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
-from engine.network import NetworkEnvironment
 import asyncio
 import json
+import os
+from contextlib import asynccontextmanager
+from typing import Optional
 
-# ── Pydantic models for REST request bodies ────────────────────────────────────
+import redis.asyncio as redis
+from fastapi import Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
+from fastapi.security import APIKeyHeader
+from pydantic import BaseModel
+
+from engine.network import NetworkEnvironment
+
+# ─── Settings & Auth ──────────────────────────────────────────────────────────
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+API_KEY = os.getenv("API_KEY", "supersecret")
+API_KEY_NAME = "X-API-Key"
+
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header == API_KEY:
+        return api_key_header
+    raise HTTPException(status_code=403, detail="Could not validate API KEY")
+
+# ─── Pydantic Models for Validation ───────────────────────────────────────────
 class TargetNodeRequest(BaseModel):
     target_node_id: str
 
@@ -13,15 +32,59 @@ class BlockPortRequest(BaseModel):
     port: int
 
 class ScanRequest(BaseModel):
-    start_node: str = "Node_1"   # default entry point; pivot node after lateral movement
+    start_node: str = "Node_1"
 
-# ── Helper: format a Node for the REST scripts ─────────────────────────────────
+class NodeResponse(BaseModel):
+    id: str
+    ip_address: str
+    os_type: str
+    status: str
+    cpu_usage: int
+    ports: List[int]
+    blocked_ports: List[int]
+    scan_rate: int
+    is_database: bool
+    
+class ScanResponse(BaseModel):
+    discovered_nodes: List[NodeResponse]
+    bfs_order: List[str]
+    pivot: str
+    exposed_this_scan: List[str]
+
+class ActionCommand(BaseModel):
+    agent: str
+    action: str
+    target: Optional[str] = None
+    port: Optional[int] = None
+
+
+class RootResponse(BaseModel):
+    message: str
+
+
+class ResetResponse(BaseModel):
+    status: str
+    nodes: int
+
+
+class ActionResponse(BaseModel):
+    success: bool
+    action: Optional[str] = None
+    new_status: Optional[str] = None
+    node: Optional[NodeResponse] = None
+
+
+class WsSnapshotMessage(BaseModel):
+    type: str
+    nodes: dict[str, NodeResponse]
+
+
+class WsDeltaMessage(BaseModel):
+    type: str
+    changed_nodes: dict[str, NodeResponse]
+
+# Helper map
 def node_to_rest_dict(node_id: str, node) -> dict:
-    """
-    Maps internal Node fields to the shape expected by scripts/red_team.py
-    and scripts/blue_team.py.  A fake IP is derived from the node number so
-    the log output looks realistic.
-    """
     num = node_id.replace("Node_", "")
     return {
         "id":            node_id,
@@ -35,11 +98,49 @@ def node_to_rest_dict(node_id: str, node) -> dict:
         "is_database":   node.is_database,
     }
 
-app = FastAPI(title="NET WAR API")
+# ─── Redis State Management ───────────────────────────────────────────────────
 
-# Initialize the simulated world
-battlefield = NetworkEnvironment()
+def battlefield_nodes_to_rest_map(env: NetworkEnvironment) -> dict[str, dict]:
+    return {
+        node_id: node_to_rest_dict(node_id, node)
+        for node_id, node in env.nodes.items()
+    }
 
+
+async def init_redis_state(redis_client):
+    state_str = await redis_client.get("battlefield_state")
+    if not state_str:
+        env = NetworkEnvironment()
+        await redis_client.set("battlefield_state", json.dumps(env.to_dict()))
+
+async def get_battlefield() -> NetworkEnvironment:
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    try:
+        state_str = await r.get("battlefield_state")
+        if state_str:
+            return NetworkEnvironment.from_dict(json.loads(state_str))
+        env = NetworkEnvironment()
+        return env
+    finally:
+        await r.aclose()
+
+async def save_battlefield(env: NetworkEnvironment, changed_node_ids: Optional[list[str]] = None):
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    try:
+        await r.set("battlefield_state", json.dumps(env.to_dict()))
+
+        nodes_map = battlefield_nodes_to_rest_map(env)
+        if changed_node_ids is None:
+            changed = nodes_map
+        else:
+            changed = {node_id: nodes_map[node_id] for node_id in changed_node_ids if node_id in nodes_map}
+
+        payload = WsDeltaMessage(type="delta", changed_nodes=changed).model_dump()
+        await r.publish("battlefield_updates", json.dumps(payload))
+    finally:
+        await r.aclose()
+
+# ─── Connection Manager ───────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -49,202 +150,238 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            await connection.send_text(json.dumps(message))
+        tasks = [connection.send_text(json.dumps(message)) for connection in self.active_connections]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 manager = ConnectionManager()
 
-# Background task that acts as the "Time" in our simulation
-async def simulation_loop():
-    while True:
-        # 1. Update OS states (CPU spikes, etc.)
-        battlefield.tick_all_nodes()
-        
-        # 2. Broadcast the current map to all connected clients
-        current_state = battlefield.get_state()
-        await manager.broadcast(current_state)
-        
-        # 3. Wait 1.5 seconds before the next tick
-        await asyncio.sleep(1.5)
+# Background Redis subscriber for WebSockets
+async def redis_listener():
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    pubsub = r.pubsub()
+    await pubsub.subscribe("battlefield_updates")
+    
+    try:
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                data = json.loads(message["data"])
+                await manager.broadcast(data)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await pubsub.unsubscribe()
+        await pubsub.close()
+        await r.aclose()
 
-@app.on_event("startup")
-async def startup_event():
-    # Start the simulation loop when the server starts
-    asyncio.create_task(simulation_loop())
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    await init_redis_state(r)
+    await r.aclose()
+    
+    # Start background listener
+    task = asyncio.create_task(redis_listener())
+    yield
+    # Shutdown
+    task.cancel()
+
+app = FastAPI(title="NET WAR API", lifespan=lifespan)
 
 @app.websocket("/ws/combat")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
+        snapshot_battlefield = await get_battlefield()
+        snapshot = WsSnapshotMessage(
+            type="snapshot",
+            nodes=battlefield_nodes_to_rest_map(snapshot_battlefield),
+        ).model_dump()
+        await websocket.send_text(json.dumps(snapshot))
+
         while True:
-            # 1. Wait for an incoming command from Red/Blue AI agents
             data = await websocket.receive_text()
-            command = json.loads(data)
+            try:
+                command_data = json.loads(data)
+                command = ActionCommand(**command_data)
+            except (json.JSONDecodeError, ValueError):
+                continue
+                
+            battlefield = await get_battlefield()
             
-            print(f"Executing command: {command}")
-            
-            # 2. Handle BFS scan specially — reply only to the requesting client
-            if command.get("action") == "bfs_scan":
-                start_node = command.get("target", "Node_1")
-                bfs_order = battlefield.bfs_scan(start_node)
-                print(f"🔴 BFS scan from {start_node}: {bfs_order}")
+            # Offload BFS scan to thread pool if it gets heavy
+            if command.action == "bfs_scan":
+                start_node = command.target or "Node_1"
+                bfs_order = await asyncio.to_thread(battlefield.bfs_scan, start_node)
                 await websocket.send_text(json.dumps({"bfs_order": bfs_order}))
-                continue  # Don't apply as a regular action
-
-            # 3. Apply the action to the battlefield
-            battlefield.apply_action(command)
-
-            # 4. Instantly broadcast the updated state to everyone so the UI reacts immediately
-            await manager.broadcast(battlefield.get_state())
-
+                continue
+                
+            # Apply action
+            async def apply_and_save():
+                battlefield.apply_action(command.model_dump())
+                changed = [command.target] if command.target else None
+                await save_battlefield(battlefield, changed_node_ids=changed)
+            
+            asyncio.create_task(apply_and_save())
             
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-@app.get("/")
+@app.get("/", response_model=RootResponse)
 def read_root():
     return {"message": "NET WAR Engine is running."}
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  REST API  —  used by scripts/red_team.py and scripts/blue_team.py
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/api/nodes")
-def get_nodes():
-    """Returns all current node states (used by blue_team.py to poll for anomalies)."""
+@app.get("/api/nodes", response_model=List[NodeResponse])
+async def get_nodes(api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
     return [
         node_to_rest_dict(nid, node)
         for nid, node in battlefield.nodes.items()
     ]
 
-
-@app.post("/api/reset")
-async def reset_battlefield():
-    """
-    Resets the entire battlefield to its initial state (all nodes SECURE).
-    Called at the start of each simulate.py run so previous state is never
-    carried over between simulation runs.
-    """
-    global battlefield
+@app.post("/api/reset", response_model=ResetResponse)
+async def reset_battlefield(api_key: str = Depends(get_api_key)):
     battlefield = NetworkEnvironment()
-    await manager.broadcast(battlefield.get_state())
-    print("🔄 /api/reset — Battlefield reset. All nodes SECURE.")
+    await save_battlefield(battlefield)
     return {"status": "reset", "nodes": len(battlefield.nodes)}
 
-
-@app.post("/api/scan")
-async def scan_network(body: ScanRequest = None):
-    """
-    Phase 1 – Reconnaissance (Unit II: Uninformed Search).
-    Only exposes the pivot node + its DIRECT NEIGHBORS (1 hop).
-    Red Team must actually own a node to scan outward from it.
-    The database stays hidden until Red reaches a depth-3 node next to it.
-    """
+@app.post("/api/scan", response_model=ScanResponse)
+async def scan_network(body: ScanRequest = None, api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
     start = body.start_node if body else "Node_1"
     if start not in battlefield.nodes:
-        start = "Node_1"
+        raise HTTPException(status_code=404, detail=f"Start node '{start}' not found")
 
     adjacency = battlefield.get_adjacency_list()
-
-    # 1-hop exposure: only start node + its immediate neighbors
     to_expose = [start] + adjacency.get(start, [])
-
+    
     for node_id in to_expose:
-        node = battlefield.nodes[node_id]
-        if node.status == "SECURE":
-            node.status = "EXPOSED"
+        if node_id in battlefield.nodes:
+            node = battlefield.nodes[node_id]
+            if node.status == "SECURE":
+                node.status = "EXPOSED"
 
-    # Still run full BFS for display/return (shows the path structure)
-    bfs_order = battlefield.bfs_scan(start)
-
-    await manager.broadcast(battlefield.get_state())
+    bfs_order = await asyncio.to_thread(battlefield.bfs_scan, start)
+    await save_battlefield(battlefield, changed_node_ids=to_expose)
 
     discovered = [node_to_rest_dict(nid, battlefield.nodes[nid]) for nid in to_expose]
-    print(f"🔴 /api/scan — pivot:{start} | exposed: {to_expose}")
-    return {"discovered_nodes": discovered, "bfs_order": bfs_order,
-            "pivot": start, "exposed_this_scan": to_expose}
+    return {
+        "discovered_nodes": discovered, 
+        "bfs_order": bfs_order,
+        "pivot": start, 
+        "exposed_this_scan": to_expose
+    }
 
-
-
-@app.post("/api/attack")
-async def attack_node(body: TargetNodeRequest):
-    """
-    Phase 2 – Exploitation (Unit VI: STRIPS kill chain).
-    Advances the node one step through: EXPOSED → COMPROMISED → ROOT_ACCESS.
-    Also broadcasts the updated state to all WebSocket clients.
-    """
+@app.post("/api/attack", response_model=ActionResponse)
+async def attack_node(body: TargetNodeRequest, api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
     node_id = body.target_node_id
     if node_id not in battlefield.nodes:
-        return {"success": False, "reason": f"Node {node_id} not found."}
-
+        raise HTTPException(status_code=404, detail="Node not found")
+        
     node = battlefield.nodes[node_id]
-
-    if node.status == "EXPOSED":
-        battlefield.apply_action({"agent": "red", "action": "exploit",               "target": node_id})
+    if node.status == "SECURE":
+        node.status = "EXPOSED"
+    elif node.status == "EXPOSED":
+        node.status = "COMPROMISED"
     elif node.status == "COMPROMISED":
-        battlefield.apply_action({"agent": "red", "action": "privilege_escalation",  "target": node_id})
-    elif node.status == "SECURE":
-        # Fallback — expose first if somehow still SECURE
-        battlefield.apply_action({"agent": "red", "action": "scan",                  "target": node_id})
-    else:
-        return {"success": False, "reason": f"Node {node_id} already at {node.status}."}
+        node.status = "ROOT_ACCESS"
 
-    await manager.broadcast(battlefield.get_state())
-    print(f"🔴 /api/attack — {node_id} now {battlefield.nodes[node_id].status}")
-    return {"success": True, "node_id": node_id, "new_status": battlefield.nodes[node_id].status}
+    await save_battlefield(battlefield, changed_node_ids=[node_id])
+    return {
+        "success": True,
+        "action": "attack",
+        "new_status": node.status,
+        "node": node_to_rest_dict(node_id, node),
+    }
 
-
-@app.post("/api/patch")
-async def patch_node(body: TargetNodeRequest):
-    """
-    Blue Team countermeasure — restores a compromised node to SECURE.
-    Also broadcasts the updated state to all WebSocket clients.
-    """
+@app.post("/api/backdoor", response_model=ActionResponse)
+async def backdoor_node(body: TargetNodeRequest, api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
     node_id = body.target_node_id
     if node_id not in battlefield.nodes:
-        return {"success": False, "reason": f"Node {node_id} not found."}
-
-    battlefield.apply_action({"agent": "blue", "action": "patch", "target": node_id})
-    await manager.broadcast(battlefield.get_state())
-    print(f"🔵 /api/patch — {node_id} restored to SECURE")
-    return {"success": True, "node_id": node_id, "new_status": "SECURE"}
-
-
-@app.post("/api/kill_process")
-async def kill_process(body: TargetNodeRequest):
-    """
-    Blue Team: kill_process downgrades EXPOSED/COMPROMISED → SECURE.
-    Cheaper than a full patch — used for early-stage threats.
-    """
-    node_id = body.target_node_id
-    if node_id not in battlefield.nodes:
-        return {"success": False, "reason": f"Node {node_id} not found."}
+        raise HTTPException(status_code=404, detail="Node not found")
 
     node = battlefield.nodes[node_id]
-    if node.status not in ["EXPOSED", "COMPROMISED"]:
-        return {"success": False, "reason": f"Node {node_id} is {node.status} — kill_process has no effect."}
+    if node.status in ["SECURE", "EXPOSED"]:
+        raise HTTPException(status_code=400, detail="Cannot backdoor a non-compromised node")
+        
+    await save_battlefield(battlefield, changed_node_ids=[node_id])
+    return {
+        "success": True,
+        "action": "backdoor_installed",
+        "new_status": node.status,
+        "node": node_to_rest_dict(node_id, node),
+    }
 
-    battlefield.apply_action({"agent": "blue", "action": "kill_process", "target": node_id})
-    await manager.broadcast(battlefield.get_state())
-    print(f"🔵 /api/kill_process — {node_id} process terminated, status: SECURE")
-    return {"success": True, "node_id": node_id, "new_status": "SECURE"}
-
-
-@app.post("/api/block_port")
-async def block_port(body: BlockPortRequest):
-    """
-    Blue Team: close a specific port on a node to cut off Red Team attack vectors.
-    E.g., block port 22 to stop SSH-based lateral movement.
-    """
+@app.post("/api/patch", response_model=ActionResponse)
+async def patch_node(body: TargetNodeRequest, api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
     node_id = body.target_node_id
     if node_id not in battlefield.nodes:
-        return {"success": False, "reason": f"Node {node_id} not found."}
+        raise HTTPException(status_code=404, detail="Node not found")
 
-    battlefield.apply_action({"agent": "blue", "action": "block_port", "target": node_id, "port": body.port})
-    await manager.broadcast(battlefield.get_state())
-    print(f"🔵 /api/block_port — Port {body.port} closed on {node_id}")
-    return {"success": True, "node_id": node_id, "port_blocked": body.port}
+    node = battlefield.nodes[node_id]
+    if node.status == "ROOT_ACCESS":
+        node.status = "COMPROMISED"
+        node.scan_rate = 0
+    else:
+        node.status = "SECURE"
+        node.scan_rate = 0
+
+    await save_battlefield(battlefield, changed_node_ids=[node_id])
+    return {
+        "success": True,
+        "action": "patched",
+        "new_status": node.status,
+        "node": node_to_rest_dict(node_id, node),
+    }
+
+@app.post("/api/kill_process", response_model=ActionResponse)
+async def kill_process(body: TargetNodeRequest, api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
+    node_id = body.target_node_id
+    if node_id not in battlefield.nodes:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    node = battlefield.nodes[node_id]
+    if node.status in ["EXPOSED", "COMPROMISED"]:
+        node.status = "SECURE"
+        node.scan_rate = 0
+
+    await save_battlefield(battlefield, changed_node_ids=[node_id])
+    return {
+        "success": True,
+        "action": "process_killed",
+        "new_status": node.status,
+        "node": node_to_rest_dict(node_id, node),
+    }
+
+@app.post("/api/block_port", response_model=ActionResponse)
+async def block_port(body: BlockPortRequest, api_key: str = Depends(get_api_key)):
+    battlefield = await get_battlefield()
+    node_id = body.target_node_id
+    if node_id not in battlefield.nodes:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    node = battlefield.nodes[node_id]
+    port = body.port
+
+    if port in node.open_ports:
+        node.open_ports.remove(port)
+        if port not in node.blocked_ports:
+            node.blocked_ports.append(port)
+
+    await save_battlefield(battlefield, changed_node_ids=[node_id])
+    return {
+        "success": True,
+        "action": "port_blocked",
+        "new_status": node.status,
+        "node": node_to_rest_dict(node_id, node),
+    }

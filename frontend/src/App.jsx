@@ -9,7 +9,17 @@ import ReactFlow, {
   MarkerType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { ShieldAlert, ShieldCheck, TerminalSquare, Server, Database, Globe, Network } from 'lucide-react';
+import {
+  AlertTriangle,
+  Database,
+  Globe,
+  Network,
+  Server,
+  ShieldAlert,
+  ShieldCheck,
+  Skull,
+  TerminalSquare
+} from 'lucide-react';
 
 // Hardcoded friendly names to make the simulation easier to understand
 const NODE_ROLES = {
@@ -35,12 +45,19 @@ const NODE_ROLES = {
   20: { role: "Vault Core", icon: Database },
 };
 
+const STATUS_ICONS = {
+  SECURE: ShieldCheck,
+  EXPOSED: AlertTriangle,
+  COMPROMISED: ShieldAlert,
+  ROOT_ACCESS: Skull,
+};
+
 // Custom Node Component for A.R.M.O.R
 const ArmorNode = ({ data, id }) => {
-  const isHighCpu = data.cpu_usage > 75;
   const isTarget = data.os_type === 'Database';
   const roleInfo = NODE_ROLES[id] || { role: "Server", icon: Server };
   const Icon = roleInfo.icon;
+  const StatusIcon = STATUS_ICONS[data.status] || ShieldCheck;
 
   let statusClass = `status-${data.status}`;
   if (isTarget && data.status === 'SECURE') statusClass = 'status-Target';
@@ -59,8 +76,8 @@ const ArmorNode = ({ data, id }) => {
         <div className="node-subtitle">{data.ip_address} | {data.os_type}</div>
         
         <div className="status-indicator">
-           <div className={`status-dot-small ${data.status.toLowerCase()}`}></div>
-           <span>{data.status.toUpperCase()}</span>
+            <StatusIcon size={14} />
+            <span>{data.status}</span>
         </div>
 
         <div className="node-stats">
@@ -196,12 +213,14 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const ws = useRef(null);
 
+  const enrichNode = (id, data) => ({
+    ...data,
+    id,
+    ip_address: data.ip_address || `192.168.1.${id.replace('Node_', '')}`,
+  });
+
   const enrichNodes = (nodesDict) =>
-    Object.entries(nodesDict).map(([id, data]) => ({
-      ...data,
-      id,
-      ip_address: `192.168.1.${id.replace('Node_', '')}`,
-    }));
+    Object.entries(nodesDict).map(([id, data]) => enrichNode(id, data));
 
   useEffect(() => {
     ws.current = new WebSocket('ws://localhost:8000/ws/combat');
@@ -212,37 +231,65 @@ export default function App() {
 
     ws.current.onmessage = (event) => {
       const message = JSON.parse(event.data);
-      if (!message.nodes) return;
+      let changedNodesArray = [];
 
-      const nodesArray = enrichNodes(message.nodes);
+      if (message.type === 'snapshot' && message.nodes) {
+        const nodesArray = enrichNodes(message.nodes);
+        changedNodesArray = nodesArray;
 
-      setNodes((nds) => {
-        if (nds.length === 0) {
-          const layout = getInitialLayout(nodesArray);
-          setEdges(getInitialEdges(nodesArray));
-          return layout;
-        }
-        return nds.map((node) => {
-          const updated = nodesArray.find((n) => n.id === node.id);
-          if (updated) return { ...node, data: updated };
-          return node;
+        setNodes((nds) => {
+          if (nds.length === 0) {
+            const layout = getInitialLayout(nodesArray);
+            setEdges(getInitialEdges(nodesArray));
+            return layout;
+          }
+
+          return nds.map((node) => {
+            const updated = nodesArray.find((n) => n.id === node.id);
+            return updated ? { ...node, data: updated } : node;
+          });
         });
-      });
+      } else if (message.type === 'delta' && message.changed_nodes) {
+        const deltaById = Object.fromEntries(
+          Object.entries(message.changed_nodes).map(([id, data]) => [id, enrichNode(id, data)])
+        );
+        changedNodesArray = Object.values(deltaById);
 
-      setEdges((eds) =>
-        eds.map((e) => {
-          const src = message.nodes[e.source];
-          const isUnderAttack =
-            src && ['EXPOSED', 'COMPROMISED', 'ROOT_ACCESS'].includes(src.status);
-          return isUnderAttack
-            ? { ...e, animated: true,  style: { stroke: '#ef4444', strokeWidth: 3 },
-                markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' } }
-            : { ...e, animated: false, style: { stroke: '#475569', strokeWidth: 2 },
-                markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' } };
-        })
-      );
+        setNodes((nds) =>
+          nds.map((node) => {
+            const updated = deltaById[node.id];
+            return updated ? { ...node, data: { ...node.data, ...updated } } : node;
+          })
+        );
 
-      nodesArray.forEach((n) => {
+        setEdges((eds) =>
+          eds.map((edge) => {
+            const src = deltaById[edge.source];
+            if (!src) {
+              return edge;
+            }
+
+            const isUnderAttack = ['EXPOSED', 'COMPROMISED', 'ROOT_ACCESS'].includes(src.status);
+            return isUnderAttack
+              ? {
+                  ...edge,
+                  animated: true,
+                  style: { stroke: '#ef4444', strokeWidth: 3 },
+                  markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' },
+                }
+              : {
+                  ...edge,
+                  animated: false,
+                  style: { stroke: '#475569', strokeWidth: 2 },
+                  markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' },
+                };
+          })
+        );
+      } else {
+        return;
+      }
+
+      changedNodesArray.forEach((n) => {
         if (n.status === 'ROOT_ACCESS') {
           addLocalLog('Red Team', `ROOT_ACCESS gained on ${n.id} (${n.ip_address})`, 'critical');
         } else if (n.status === 'COMPROMISED') {

@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7.4.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  api:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=supersecretkey123
+    depends_on:
+      - redis
+
+  celery_worker:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "celery_app.celery", "worker", "--loglevel=info"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  celery_beat:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "celery_app.celery", "beat", "--loglevel=info"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - celery_worker
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:8080"
+    depends_on:
+      - api
+
+volumes:
+  redis_data:
