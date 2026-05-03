@@ -9,6 +9,7 @@ import ReactFlow, {
   MarkerType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import GameTree from './GameTree.jsx';
 import {
   AlertTriangle,
   Database,
@@ -211,6 +212,7 @@ export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [logs, setLogs] = useState([]);
+  const [showGameTree, setShowGameTree] = useState(false);
   const ws = useRef(null);
 
   const enrichNode = (id, data) => ({
@@ -340,6 +342,19 @@ export default function App() {
                textDecoration: 'none', letterSpacing: '0.5px', pointerEvents: 'auto',
                transition: 'all 0.2s'
              }}>🌳 View A* Game Tree →</a>
+
+             <button
+               type="button"
+               onClick={() => setShowGameTree(true)}
+               style={{
+                 padding: '6px 16px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)',
+                 borderRadius: '8px', color: '#f59e0b', fontSize: '12px', fontWeight: 700,
+                 letterSpacing: '0.5px', pointerEvents: 'auto', cursor: 'pointer',
+                 transition: 'all 0.2s'
+               }}
+             >
+               ⚛️ Open React Tree
+             </button>
              
              <a href="/minimax_tree.html" target="_blank" rel="noopener noreferrer" style={{
                padding: '6px 16px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.4)',
@@ -392,6 +407,39 @@ export default function App() {
           )}
         </div>
       </aside>
+
+      {showGameTree && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            background: 'rgba(2, 6, 23, 0.92)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowGameTree(false)}
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '16px',
+              zIndex: 60,
+              padding: '10px 14px',
+              borderRadius: '10px',
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(17, 24, 39, 0.85)',
+              color: '#e2e8f0',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Close
+          </button>
+          <GameTree />
+        </div>
+      )}
     </div>
   );
 }

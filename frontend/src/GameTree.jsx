@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import './GameTree.css';
 
 // ═══ NETWORK TOPOLOGY ═══
 // Matches backend/engine/network.py adjacency list
