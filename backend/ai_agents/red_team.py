@@ -11,7 +11,7 @@ Algorithm:
   A* expands the node with LOWEST f(n) → optimal least-cost path
 
 Kill chain per node:  SECURE → EXPOSED → COMPROMISED → ROOT_ACCESS
-WIN condition:        Database (Node_10) reaches ROOT_ACCESS
+WIN condition:        Database (Node_20) reaches ROOT_ACCESS
 """
 
 import asyncio
@@ -19,33 +19,31 @@ import websockets
 import json
 import heapq
 
+from engine.network import NetworkEnvironment
+
 # ── A* Heuristic Constants ────────────────────────────────────────────────────
 DETECTION_RISK_WEIGHT = 0.3   # how much each compromised node increases g(n)
 
-# Depth = shortest hops from internet to each node
-DEPTH = {
-    "Node_1":  0,
-    "Node_2":  1, "Node_3":  1,
-    "Node_4":  2, "Node_5":  2, "Node_6":  2,
-    "Node_7":  3, "Node_8":  3, "Node_9":  3,
-    "Node_10": 4,
-}
+_NETWORK = NetworkEnvironment()
+ADJACENCY = _NETWORK.get_adjacency_list()
 
-# Network adjacency (matches backend/engine/network.py topology)
-ADJACENCY = {
-    "Node_1":  ["Node_2", "Node_3"],
-    "Node_2":  ["Node_1", "Node_4", "Node_5"],
-    "Node_3":  ["Node_1", "Node_5", "Node_6"],
-    "Node_4":  ["Node_2", "Node_7", "Node_8"],
-    "Node_5":  ["Node_2", "Node_3", "Node_8"],
-    "Node_6":  ["Node_3", "Node_8", "Node_9"],
-    "Node_7":  ["Node_4", "Node_10"],
-    "Node_8":  ["Node_4", "Node_5", "Node_6", "Node_10"],
-    "Node_9":  ["Node_6", "Node_10"],
-    "Node_10": ["Node_7", "Node_8", "Node_9"],
-}
 
-DATABASE_NODE = "Node_10"
+def _compute_depths(start: str = "Node_1") -> dict:
+    depths = {start: 0}
+    queue = [start]
+    while queue:
+        current = queue.pop(0)
+        for neighbor in ADJACENCY.get(current, []):
+            if neighbor not in depths:
+                depths[neighbor] = depths[current] + 1
+                queue.append(neighbor)
+    return depths
+
+
+DEPTH = _compute_depths()
+DATABASE_NODE = next(
+    node_id for node_id, node in _NETWORK.nodes.items() if getattr(node, "is_database", False)
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -53,7 +51,7 @@ DATABASE_NODE = "Node_10"
 #
 #  State space: network nodes
 #  Start: Node_1 (internet entry point)
-#  Goal:  Node_10 (database / crown jewel)
+#  Goal:  Node_20 (database / crown jewel)
 #
 #  g(n) = steps taken + detection risk accumulated
 #  h(n) = hop_distance_to_target / vulnerability_score_of_node

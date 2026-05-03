@@ -32,8 +32,8 @@ This system is strictly engineered to implement foundational Artificial Intellig
 * **Automated Planning (Unit VI):** The Red Agent utilizes **STRIPS (Goal Stack Planning)** to generate logical exploit chains. It works backward from a primary goal (`Data_Exfiltrated`) to satisfy preconditions (e.g., `Scan -> Bypass_Firewall -> Escalate_Privilege`).
 
 ## ⚙️ System Architecture
-The project is decoupled into four highly specialized micro-services:
-1. **The Engine (Backend):** A Python-based `FastAPI` application handling WebSocket communication and simulating OS-level process scheduling and network state.
+The project is organized into four coordinated components:
+1. **The Engine (Backend):** A Python-based `FastAPI` application handling REST, WebSocket communication, and simulation state.
 2. **The Autonomous Agents:** Independent Python scripts representing the adversarial AIs, interacting with the engine's state asynchronously.
-3. **The SIEM Logger (DBMS):** A relational database system acting as a Security Information and Event Management logger, recording every packet sent and defensive maneuver deployed for forensic analysis.
+3. **The Shared State Layer:** `Redis` plus background workers, used for battlefield snapshots, deltas, and simulation ticks.
 4. **The War Room (Frontend):** A `React.js` command center utilizing graph-visualization libraries to render the live battle state, node health, and attack vectors in real-time.

@@ -11,13 +11,15 @@ Algorithm:
   A* expands the node with LOWEST f(n) → optimal least-cost path
 
 Kill chain per node:  EXPOSED → COMPROMISED → ROOT_ACCESS
-WIN:  Database reaches ROOT_ACCESS
+WIN:  Database (Node_20) reaches ROOT_ACCESS
 LOSE: Blue Team defends database through full round
 """
 
 import time
 import heapq
 import requests
+
+from engine.network import NetworkEnvironment
 
 session = requests.Session()
 session.headers.update({"X-API-Key": "supersecret"})
@@ -32,28 +34,26 @@ ROUND_RESET_DELAY  = 3
 
 # ── A* Constants ──────────────────────────────────────────────────────────────
 DETECTION_RISK_WEIGHT = 0.3
-DATABASE_NODE = "Node_10"
+_NETWORK = NetworkEnvironment()
+ADJACENCY = _NETWORK.get_adjacency_list()
 
-DEPTH = {
-    "Node_1":  0,
-    "Node_2":  1, "Node_3":  1,
-    "Node_4":  2, "Node_5":  2, "Node_6":  2,
-    "Node_7":  3, "Node_8":  3, "Node_9":  3,
-    "Node_10": 4,
-}
 
-ADJACENCY = {
-    "Node_1":  ["Node_2", "Node_3"],
-    "Node_2":  ["Node_1", "Node_4", "Node_5"],
-    "Node_3":  ["Node_1", "Node_5", "Node_6"],
-    "Node_4":  ["Node_2", "Node_7", "Node_8"],
-    "Node_5":  ["Node_2", "Node_3", "Node_8"],
-    "Node_6":  ["Node_3", "Node_8", "Node_9"],
-    "Node_7":  ["Node_4", "Node_10"],
-    "Node_8":  ["Node_4", "Node_5", "Node_6", "Node_10"],
-    "Node_9":  ["Node_6", "Node_10"],
-    "Node_10": ["Node_7", "Node_8", "Node_9"],
-}
+def _compute_depths(start: str = "Node_1") -> dict:
+    depths = {start: 0}
+    queue = [start]
+    while queue:
+        current = queue.pop(0)
+        for neighbor in ADJACENCY.get(current, []):
+            if neighbor not in depths:
+                depths[neighbor] = depths[current] + 1
+                queue.append(neighbor)
+    return depths
+
+
+DEPTH = _compute_depths()
+DATABASE_NODE = next(
+    node_id for node_id, node in _NETWORK.nodes.items() if getattr(node, "is_database", False)
+)
 
 
 def print_action(msg):

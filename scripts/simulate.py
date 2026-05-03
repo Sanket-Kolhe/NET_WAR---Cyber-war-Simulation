@@ -7,7 +7,9 @@ Run with: python simulate.py
 """
 
 import asyncio
+import heapq
 from dataclasses import dataclass, field
+from collections import deque
 
 import httpx
 
@@ -32,6 +34,83 @@ STATUS_ICON = {
     "COMPROMISED": f"{YEL}COMPROMISED{RST}",
     "ROOT_ACCESS": f"{RED}ROOT_ACCESS{RST}",
 }
+
+NETWORK_GRAPH = {
+    "Node_1": ["Node_2", "Node_3", "Node_4"],
+    "Node_2": ["Node_1", "Node_5", "Node_6"],
+    "Node_3": ["Node_1", "Node_6", "Node_7"],
+    "Node_4": ["Node_1", "Node_8", "Node_9"],
+    "Node_5": ["Node_2", "Node_10"],
+    "Node_6": ["Node_2", "Node_3", "Node_10", "Node_11"],
+    "Node_7": ["Node_3", "Node_11", "Node_12"],
+    "Node_8": ["Node_4", "Node_12", "Node_13"],
+    "Node_9": ["Node_4", "Node_14"],
+    "Node_10": ["Node_5", "Node_6", "Node_15"],
+    "Node_11": ["Node_6", "Node_7", "Node_15", "Node_16"],
+    "Node_12": ["Node_7", "Node_8", "Node_16"],
+    "Node_13": ["Node_8", "Node_16", "Node_17"],
+    "Node_14": ["Node_9", "Node_17"],
+    "Node_15": ["Node_10", "Node_11", "Node_18"],
+    "Node_16": ["Node_11", "Node_12", "Node_13", "Node_18", "Node_19"],
+    "Node_17": ["Node_13", "Node_14", "Node_19"],
+    "Node_18": ["Node_15", "Node_16", "Node_20"],
+    "Node_19": ["Node_16", "Node_17", "Node_20"],
+    "Node_20": ["Node_18", "Node_19"],
+}
+
+NODE_TRAVERSAL_COST = {
+    "Node_1": 10,
+    "Node_2": 10,
+    "Node_3": 10,
+    "Node_4": 10,
+    "Node_5": 5,
+    "Node_6": 5,
+    "Node_7": 5,
+    "Node_8": 5,
+    "Node_9": 5,
+    "Node_10": 5,
+    "Node_11": 5,
+    "Node_12": 5,
+    "Node_13": 5,
+    "Node_14": 5,
+    "Node_15": 2,
+    "Node_16": 2,
+    "Node_17": 2,
+    "Node_18": 2,
+    "Node_19": 2,
+    "Node_20": 0,
+}
+
+STATUS_COST_MULTIPLIER = {
+    "SECURE": 1.0,
+    "EXPOSED": 0.65,
+    "COMPROMISED": 0.35,
+    "ROOT_ACCESS": 0.15,
+}
+
+DETECTION_PENALTY = {
+    "SECURE": 0.0,
+    "EXPOSED": 0.6,
+    "COMPROMISED": 1.0,
+    "ROOT_ACCESS": 0.2,
+}
+
+DATABASE_NODE = "Node_20"
+
+
+def _compute_shortest_hops(goal: str = DATABASE_NODE) -> dict[str, int]:
+    distances = {goal: 0}
+    queue = deque([goal])
+    while queue:
+        current = queue.popleft()
+        for neighbor in NETWORK_GRAPH.get(current, []):
+            if neighbor not in distances:
+                distances[neighbor] = distances[current] + 1
+                queue.append(neighbor)
+    return distances
+
+
+SHORTEST_HOPS_TO_DB = _compute_shortest_hops()
 
 RULES = [
     {
@@ -71,29 +150,6 @@ RULES = [
         "act": "kill_process",
     },
 ]
-
-DEPTH = {
-    "Node_1": 0,
-    "Node_2": 1,
-    "Node_3": 1,
-    "Node_4": 1,
-    "Node_5": 2,
-    "Node_6": 2,
-    "Node_7": 2,
-    "Node_8": 2,
-    "Node_9": 2,
-    "Node_10": 3,
-    "Node_11": 3,
-    "Node_12": 3,
-    "Node_13": 3,
-    "Node_14": 3,
-    "Node_15": 4,
-    "Node_16": 4,
-    "Node_17": 4,
-    "Node_18": 5,
-    "Node_19": 5,
-    "Node_20": 6,
-}
 
 
 @dataclass
@@ -137,6 +193,153 @@ async def scan_from(client: httpx.AsyncClient, start_node: str) -> dict:
     return response.json()
 
 
+def compute_vulnerability(node: dict) -> float:
+    """Higher vulnerability means cheaper exploitation."""
+    os_vuln = {"Linux": 1.2, "Windows": 1.0, "Database": 0.8}
+    status_bonus = {"SECURE": 1.0, "EXPOSED": 1.4, "COMPROMISED": 2.0, "ROOT_ACCESS": 3.0}
+
+    os_type = node.get("os_type", "Windows")
+    base = os_vuln.get(os_type, 1.0)
+    ports = node.get("ports", [])
+    port_factor = len(ports) / 3.0 if ports else 1.0
+    status_factor = status_bonus.get(node.get("status", "SECURE"), 1.0)
+
+    return max(0.1, base * port_factor * status_factor)
+
+
+def compute_step_cost(node_id: str, node: dict) -> float:
+    base_cost = NODE_TRAVERSAL_COST.get(node_id, 5)
+    status = node.get("status", "SECURE")
+    return max(0.1, (base_cost * STATUS_COST_MULTIPLIER.get(status, 1.0)) + DETECTION_PENALTY.get(status, 0.0))
+
+
+def compute_hop_distance(node_id: str, goal: str = DATABASE_NODE) -> int:
+    return SHORTEST_HOPS_TO_DB.get(node_id, 999)
+
+
+def astar_attack_path(nodes_list: list[dict], start: str, goal: str = DATABASE_NODE) -> tuple[list[str], float]:
+    """Return the optimal path and final accumulated cost for the current graph state."""
+    nodes_by_id = {node["id"]: node for node in nodes_list}
+    if start not in nodes_by_id or goal not in nodes_by_id:
+        return [start], float("inf")
+    if start == goal:
+        return [start], 0.0
+
+    open_set: list[tuple[float, int, str, list[str], float]] = []
+    counter = 0
+    heapq.heappush(open_set, (compute_hop_distance(start, goal), counter, start, [start], 0.0))
+    best_costs: dict[str, float] = {start: 0.0}
+
+    while open_set:
+        _, _, current, path, g_cost = heapq.heappop(open_set)
+        if current == goal:
+            return path, g_cost
+
+        for neighbor in NETWORK_GRAPH.get(current, []):
+            if neighbor not in nodes_by_id:
+                continue
+
+            neighbor_node = nodes_by_id[neighbor]
+            new_g = g_cost + compute_step_cost(neighbor, neighbor_node)
+            if new_g >= best_costs.get(neighbor, float("inf")):
+                continue
+
+            best_costs[neighbor] = new_g
+            counter += 1
+            heapq.heappush(
+                open_set,
+                (new_g + compute_hop_distance(neighbor, goal), counter, neighbor, path + [neighbor], new_g),
+            )
+
+    return [start], float("inf")
+
+
+def choose_best_attack_path(nodes: list[dict]) -> tuple[list[str], float, str]:
+    nodes_by_id = {node["id"]: node for node in nodes}
+    footholds = [node["id"] for node in nodes if node["status"] in ("EXPOSED", "COMPROMISED", "ROOT_ACCESS")]
+    if "Node_1" not in footholds:
+        footholds.insert(0, "Node_1")
+
+    best_path = ["Node_1"]
+    best_cost = float("inf")
+    best_start = "Node_1"
+
+    for start in dict.fromkeys(footholds):
+        if start not in nodes_by_id:
+            continue
+        path, cost = astar_attack_path(nodes, start=start, goal=DATABASE_NODE)
+        if cost < best_cost:
+            best_path, best_cost, best_start = path, cost, start
+
+    return best_path, best_cost, best_start
+
+
+def path_breakdown(path: list[str], nodes_by_id: dict[str, dict]) -> list[dict]:
+    report = []
+    running_g = 0.0
+    for index, node_id in enumerate(path):
+        node = nodes_by_id.get(node_id, {})
+        if index > 0:
+            running_g += compute_step_cost(node_id, node)
+        h = compute_hop_distance(node_id)
+        report.append(
+            {
+                "node_id": node_id,
+                "status": node.get("status", "UNKNOWN"),
+                "g": round(running_g, 2),
+                "h": h,
+                "f": round(running_g + h, 2),
+            }
+        )
+    return report
+
+
+async def apply_a_star_kill_chain(
+    client: httpx.AsyncClient,
+    state: RuntimeState,
+    owned_nodes: set[str],
+    nodes: list[dict],
+    path: list[str],
+) -> tuple[bool, set[str]]:
+    nodes_by_id = {node["id"]: node for node in nodes}
+    if len(path) < 2:
+        return False, owned_nodes
+
+    for index in range(1, len(path)):
+        target_id = path[index]
+        target = nodes_by_id.get(target_id)
+        if not target:
+            continue
+
+        pivot_id = path[index - 1]
+        if target["status"] == "ROOT_ACCESS":
+            continue
+
+        if target["status"] == "SECURE":
+            rprint(f"A* selected {target_id} as a secure target; scanning from {pivot_id} to expose it.")
+            await scan_from(client, pivot_id)
+            nodes = await get_nodes(client)
+            nodes_by_id = {node["id"]: node for node in nodes}
+            target = nodes_by_id.get(target_id, target)
+
+        won, owned_nodes = await attack_node(client, state, owned_nodes, target, pivot_id)
+        if won:
+            return True, owned_nodes
+
+        refreshed_nodes = await get_nodes(client)
+        refreshed_by_id = {node["id"]: node for node in refreshed_nodes}
+        refreshed_target = refreshed_by_id.get(target_id, target)
+        if refreshed_target.get("status") == "COMPROMISED":
+            won, owned_nodes = await attack_node(client, state, owned_nodes, refreshed_target, pivot_id)
+            if won:
+                return True, owned_nodes
+
+        # Replan each turn after a single chain step; Blue may have altered the graph.
+        return False, owned_nodes
+
+    return False, owned_nodes
+
+
 async def attack_node(
     client: httpx.AsyncClient,
     state: RuntimeState,
@@ -166,7 +369,7 @@ async def attack_node(
 
     if new_status == "ROOT_ACCESS":
         owned_nodes = owned_nodes | {node_id}
-        rprint(f"  -> {node_id} OWNED (depth={DEPTH.get(node_id, 0)}, total={len(owned_nodes)})")
+        rprint(f"  -> {node_id} OWNED (hop_to_db={compute_hop_distance(node_id)}, total={len(owned_nodes)})")
         scan_payload = await scan_from(client, node_id)
         exposed = scan_payload.get("exposed_this_scan", [])
         rprint(f"  -> New targets exposed: {exposed}")
@@ -183,73 +386,31 @@ async def red_team_turn(
     nodes: list[dict],
     owned_nodes: set[str],
 ) -> tuple[bool, set[str]]:
-    pivot = max(owned_nodes, key=lambda nid: DEPTH.get(nid, 0)) if owned_nodes else "Node_1"
+    path, path_cost, start = choose_best_attack_path(nodes)
+    nodes_by_id = {node["id"]: node for node in nodes}
 
-    db_targets = [
-        node
-        for node in nodes
-        if node.get("is_database", False)
-        and node["status"] in ("EXPOSED", "COMPROMISED")
-        and state.attack_counts.get(node["id"], 0) < 3
-    ]
-
-    compromised = sorted(
-        [
-            node
-            for node in nodes
-            if node["status"] == "COMPROMISED"
-            and not node.get("is_database", False)
-            and state.attack_counts.get(node["id"], 0) < 3
-        ],
-        key=lambda node: DEPTH.get(node["id"], 0),
-        reverse=True,
-    )
-
-    exposed = sorted(
-        [
-            node
-            for node in nodes
-            if node["status"] == "EXPOSED"
-            and not node.get("is_database", False)
-            and state.attack_counts.get(node["id"], 0) < 3
-        ],
-        key=lambda node: DEPTH.get(node["id"], 0),
-        reverse=True,
-    )
-
-    if not db_targets and not compromised and not exposed:
-        label = f"{pivot} (foothold)" if pivot != "Node_1" else "Node_1 (internet)"
-        rprint(f"No targets. Pivot BFS from {label}...")
-        bfs_payload = await scan_from(client, pivot)
+    if len(path) < 2 or path_cost == float("inf"):
+        rprint("A* could not find a viable route; falling back to reconnaissance from Node_1.")
+        bfs_payload = await scan_from(client, "Node_1")
         bfs = bfs_payload.get("bfs_order", [])
-        rprint(f"BFS from [{bfs_payload.get('pivot', pivot)}]: {' -> '.join(bfs)}")
+        rprint(f"BFS from [{bfs_payload.get('pivot', 'Node_1')}]: {' -> '.join(bfs)}")
         return False, owned_nodes
 
-    strike_targets: list[dict] = []
+    rprint(f"A* optimal kill chain from {start}: {' -> '.join(path)}")
+    rprint(f"A* total path cost: {path_cost:.2f}")
+    for step in path_breakdown(path, nodes_by_id):
+        rprint(
+            f"  {step['node_id']}: status={step['status']} | g={step['g']:.2f} | "
+            f"h={step['h']} | f={step['f']:.2f}"
+        )
 
-    if db_targets and db_targets[0]["status"] == "COMPROMISED":
-        strike_targets.append(db_targets[0])
-    elif compromised:
-        strike_targets.append(compromised[0])
-
-    skip_ids = {target["id"] for target in strike_targets}
-
-    fresh_exposed = [node for node in exposed if node["id"] not in skip_ids]
-    if db_targets and db_targets[0]["status"] == "EXPOSED" and db_targets[0]["id"] not in skip_ids:
-        strike_targets.append(db_targets[0])
-    elif fresh_exposed:
-        strike_targets.append(fresh_exposed[0])
-
-    if not strike_targets:
-        return False, owned_nodes
-
-    tasks = [attack_node(client, state, owned_nodes, target, pivot) for target in strike_targets[:2]]
-    results = await asyncio.gather(*tasks)
-
-    red_wins = False
-    for won, updated_owned in results:
-        owned_nodes = owned_nodes | updated_owned
-        red_wins = red_wins or won
+    red_wins, owned_nodes = await apply_a_star_kill_chain(
+        client=client,
+        state=state,
+        owned_nodes=owned_nodes,
+        nodes=nodes,
+        path=path,
+    )
 
     return red_wins, owned_nodes
 
@@ -269,7 +430,7 @@ async def blue_team_turn(client: httpx.AsyncClient, state: RuntimeState, nodes: 
     if not alerts:
         secure_nodes = [node for node in nodes if node["status"] == "SECURE" and node["id"] != "Node_1"]
         if secure_nodes and state.blue_budget >= 15:
-            worst = min(secure_nodes, key=lambda node: DEPTH.get(node["id"], 99))
+            worst = max(secure_nodes, key=lambda node: compute_hop_distance(node["id"]))
             state.blue_budget -= 15
             bprint(f"[PROACTIVE] Preemptive hardening -> {worst['id']} (-15 pts)")
             await client.post(f"{API_URL}/patch", json={"target_node_id": worst["id"]})

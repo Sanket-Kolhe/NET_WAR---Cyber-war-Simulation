@@ -3,20 +3,30 @@ import React, { useEffect, useRef } from 'react';
 // ═══ NETWORK TOPOLOGY ═══
 // Matches backend/engine/network.py adjacency list
 const NETWORK = {
-  Node_1:  { os: "Windows", role: "Gateway",      depth: 0, neighbors: ["Node_2", "Node_3"] },
-  Node_2:  { os: "Linux",   role: "Web Server α",  depth: 1, neighbors: ["Node_4", "Node_5"] },
-  Node_3:  { os: "Windows", role: "Web Server β",  depth: 1, neighbors: ["Node_5", "Node_6"] },
-  Node_4:  { os: "Linux",   role: "Auth Server",   depth: 2, neighbors: ["Node_7", "Node_8"] },
-  Node_5:  { os: "Windows", role: "API Gateway",   depth: 2, neighbors: ["Node_8"] },
-  Node_6:  { os: "Linux",   role: "Internal App",  depth: 2, neighbors: ["Node_8", "Node_9"] },
-  Node_7:  { os: "Windows", role: "Internal App",  depth: 3, neighbors: ["Node_10"] },
-  Node_8:  { os: "Linux",   role: "Log Server",    depth: 3, neighbors: ["Node_10"] },
-  Node_9:  { os: "Windows", role: "Cache Layer",   depth: 3, neighbors: ["Node_10"] },
-  Node_10: { os: "Database", role: "Vault Core",   depth: 4, neighbors: [] },
+  Node_1:  { os: "Windows", role: "Gateway",      depth: 0, neighbors: ["Node_2", "Node_3", "Node_4"] },
+  Node_2:  { os: "Linux",   role: "DMZ Server α", depth: 1, neighbors: ["Node_5", "Node_6"] },
+  Node_3:  { os: "Windows", role: "DMZ Server β", depth: 1, neighbors: ["Node_6", "Node_7"] },
+  Node_4:  { os: "Linux",   role: "DMZ Server γ", depth: 1, neighbors: ["Node_8", "Node_9"] },
+  Node_5:  { os: "Windows", role: "Web App",      depth: 2, neighbors: ["Node_10"] },
+  Node_6:  { os: "Linux",   role: "API Gateway",  depth: 2, neighbors: ["Node_10", "Node_11"] },
+  Node_7:  { os: "Windows", role: "Auth Server",  depth: 2, neighbors: ["Node_11", "Node_12"] },
+  Node_8:  { os: "Linux",   role: "App Server",   depth: 2, neighbors: ["Node_12", "Node_13"] },
+  Node_9:  { os: "Windows", role: "CMS Portal",   depth: 2, neighbors: ["Node_14"] },
+  Node_10: { os: "Linux",   role: "Log Collector", depth: 3, neighbors: ["Node_15"] },
+  Node_11: { os: "Windows", role: "Service Bus",   depth: 3, neighbors: ["Node_15", "Node_16"] },
+  Node_12: { os: "Linux",   role: "Task Queue",    depth: 3, neighbors: ["Node_16"] },
+  Node_13: { os: "Windows", role: "Config Store",  depth: 3, neighbors: ["Node_16", "Node_17"] },
+  Node_14: { os: "Linux",   role: "Scheduler",     depth: 3, neighbors: ["Node_17"] },
+  Node_15: { os: "Windows", role: "Admin Panel",   depth: 4, neighbors: ["Node_18"] },
+  Node_16: { os: "Linux",   role: "Data Pipeline", depth: 4, neighbors: ["Node_18", "Node_19"] },
+  Node_17: { os: "Windows", role: "Backup Server", depth: 4, neighbors: ["Node_19"] },
+  Node_18: { os: "Linux",   role: "Core Engine",   depth: 5, neighbors: ["Node_20"] },
+  Node_19: { os: "Windows", role: "Key Vault",     depth: 5, neighbors: ["Node_20"] },
+  Node_20: { os: "Database", role: "Vault Core",    depth: 6, neighbors: [] },
 };
 
 const OS_VULN = { Linux: 1.2, Windows: 1.0, Database: 0.8 };
-const DB_DEPTH = 4;
+const DB_DEPTH = 6;
 
 function computeVuln(nodeId) {
   const n = NETWORK[nodeId];
@@ -36,7 +46,7 @@ function runAStar() {
     const current = openSet.shift();
     if (visited.has(current.node)) continue;
     visited.add(current.node);
-    if (current.node === "Node_10") {
+    if (current.node === "Node_20") {
       return { optimalPath: current.path, allEvaluated };
     }
     for (const neighbor of NETWORK[current.node].neighbors) {
@@ -58,16 +68,26 @@ function runAStar() {
 }
 
 const POSITIONS = {
-  Node_1:  { x: 40,  y: 260 },
-  Node_2:  { x: 260, y: 100 },
-  Node_3:  { x: 260, y: 420 },
-  Node_4:  { x: 490, y: 30  },
-  Node_5:  { x: 490, y: 220 },
-  Node_6:  { x: 490, y: 420 },
-  Node_7:  { x: 710, y: 30  },
-  Node_8:  { x: 710, y: 220 },
-  Node_9:  { x: 710, y: 420 },
-  Node_10: { x: 930, y: 220 },
+  Node_1:  { x: 40,  y: 300 },
+  Node_2:  { x: 260, y: 80  },
+  Node_3:  { x: 260, y: 300 },
+  Node_4:  { x: 260, y: 520 },
+  Node_5:  { x: 490, y: 20  },
+  Node_6:  { x: 490, y: 140 },
+  Node_7:  { x: 490, y: 300 },
+  Node_8:  { x: 490, y: 460 },
+  Node_9:  { x: 490, y: 620 },
+  Node_10: { x: 710, y: 20  },
+  Node_11: { x: 710, y: 160 },
+  Node_12: { x: 710, y: 300 },
+  Node_13: { x: 710, y: 440 },
+  Node_14: { x: 710, y: 620 },
+  Node_15: { x: 930, y: 80  },
+  Node_16: { x: 930, y: 280 },
+  Node_17: { x: 930, y: 520 },
+  Node_18: { x: 1150, y: 160 },
+  Node_19: { x: 1150, y: 440 },
+  Node_20: { x: 1370, y: 300 },
 };
 
 const NODE_W = 170;
@@ -121,7 +141,7 @@ export default function GameTree() {
           {Object.entries(NETWORK).map(([nodeId, info]) => {
             const pos = POSITIONS[nodeId];
             const isOnPath = optimalSet.has(nodeId);
-            const isTarget = nodeId === "Node_10";
+            const isTarget = nodeId === "Node_20";
             const isStart  = nodeId === "Node_1";
             const evalData = allEvaluated.find(e => e.node === nodeId);
 
